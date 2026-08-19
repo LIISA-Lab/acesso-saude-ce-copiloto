@@ -89,8 +89,8 @@ Siga os passos abaixo para compilar o código Rust em WebAssembly:
 
 1. **Clone o repositório:**
 ```bash
-git clone https://github.com/seu-usuario/acesso-saude-copilot.git
-cd acesso-saude-copilot
+git clone https://github.com/LIISA-Lab/acesso-saude-ce-copiloto
+cd acesso-saude-ce-copiloto
 
 ```
 
