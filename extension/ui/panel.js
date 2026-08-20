@@ -1,4 +1,4 @@
-import init, { responder_chat, processar_historico, estruturar_prontuario } from '../pkg/acesso_saude_copilot.js';
+import init, { responder_chat, processar_historico, estruturar_prontuario } from '../pkg/acesso_saude_ce_copiloto.js';
 
 let resumoJson = null;
 let monitoramentoAtivo = null;
@@ -9,7 +9,7 @@ async function inicializar() {
   try {
     resumoDiv.innerHTML = "<p>Carregando motor Wasm...</p>";
     // Inicializa o módulo WebAssembly apenas no Side Panel, fugindo dos bloqueios de segurança do site original
-    await init('../pkg/acesso_saude_copilot_bg.wasm');
+    await init('../pkg/acesso_saude_ce_copiloto_bg.wasm');
   } catch (e) {
     console.error("Erro Wasm:", e);
     resumoDiv.innerHTML = `<p style='color:red;'>Erro ao iniciar Wasm: ${e.message || e}</p>`;
