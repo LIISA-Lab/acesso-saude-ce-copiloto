@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Copiloto Acesso Saúde</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h2>🩺 LIISA</h2>
+      <p>Apoio à Decisão Médica</p>
+    </header>
+
+    <div class="summary-box" id="resumoBox">
+      <p>Carregando resumo clínico...</p>
+    </div>
+
+    <div class="scribe-box" id="scribeBox">
+      <div class="scribe-header">
+        <strong>🎙️ Escriba AI</strong>
+      </div>
+      <p id="scribeStatus" style="font-size: 0.8rem; color: #555;">Clique para gravar a consulta e auto-preencher o prontuário.</p>
+      <div class="scribe-controls">
+        <button id="btnRecord" class="btn-record">🔴 Gravar Consulta</button>
+        <button id="btnStop" class="btn-stop" style="display: none;">⏹️ Parar e Preencher</button>
+      </div>
+      <div id="scribeTranscript" class="scribe-transcript" style="display: none;"></div>
+    </div>
+
+    <div class="chat-container" id="chatContainer">
+      <!-- Mensagens vão aqui -->
+    </div>
+
+    <div class="input-area">
+      <input type="text" id="chatInput" placeholder="Pergunte sobre o histórico...">
+      <button id="sendBtn">Enviar</button>
+    </div>
+  </div>
+
+  <!-- O JS precisa importar o módulo wasm como ES module -->
+  <script type="module" src="panel.js"></script>
+</body>
+</html>

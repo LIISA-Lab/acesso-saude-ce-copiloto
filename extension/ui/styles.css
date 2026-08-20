@@ -1,0 +1,153 @@
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  background-color: #f4f6f9;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+header {
+  background-color: #007BFF;
+  color: white;
+  padding: 15px;
+  text-align: center;
+}
+
+header h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+header p {
+  margin: 5px 0 0;
+  font-size: 0.8rem;
+  opacity: 0.9;
+}
+
+.summary-box {
+  background-color: #fff;
+  border-bottom: 1px solid #ccc;
+  padding: 15px;
+  font-size: 0.9rem;
+  color: #333;
+}
+
+.scribe-box {
+  background-color: #e3f2fd;
+  border-bottom: 1px solid #ccc;
+  padding: 15px;
+}
+
+.scribe-header {
+  color: #0d47a1;
+  margin-bottom: 5px;
+}
+
+.scribe-controls {
+  margin-top: 10px;
+  display: flex;
+  gap: 10px;
+}
+
+.btn-record {
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 20px;
+  padding: 8px 15px;
+  cursor: pointer;
+  font-weight: bold;
+  width: 100%;
+}
+
+.btn-stop {
+  background-color: #343a40;
+  color: white;
+  border: none;
+  border-radius: 20px;
+  padding: 8px 15px;
+  cursor: pointer;
+  font-weight: bold;
+  width: 100%;
+}
+
+.scribe-transcript {
+  margin-top: 10px;
+  background: white;
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  max-height: 100px;
+  overflow-y: auto;
+  color: #666;
+  font-style: italic;
+}
+
+.chat-container {
+  flex: 1;
+  padding: 15px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.message {
+  max-width: 85%;
+  padding: 10px 15px;
+  border-radius: 12px;
+  font-size: 0.95rem;
+}
+
+.message.user {
+  background-color: #007BFF;
+  color: white;
+  align-self: flex-end;
+  border-bottom-right-radius: 2px;
+}
+
+.message.bot {
+  background-color: #e9ecef;
+  color: #333;
+  align-self: flex-start;
+  border-bottom-left-radius: 2px;
+}
+
+.input-area {
+  display: flex;
+  padding: 10px;
+  background: white;
+  border-top: 1px solid #ccc;
+}
+
+.input-area input {
+  flex: 1;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 20px;
+  outline: none;
+  font-size: 0.95rem;
+}
+
+.input-area button {
+  background-color: #007BFF;
+  color: white;
+  border: none;
+  border-radius: 20px;
+  padding: 0 15px;
+  margin-left: 10px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.input-area button:hover {
+  background-color: #0056b3;
+}

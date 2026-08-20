@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Copiloto Acesso Saúde CE",
+  "version": "1.0.0",
+  "description": "Assistente virtual para Telessaúde CE",
+  "permissions": [
+    "sidePanel",
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://teleatendimento.vercel.app/*",
+    "<all_urls>"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["*://teleatendimento.vercel.app/*", "<all_urls>"],
+      "js": ["scripts/content_script.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "scripts/background.js"
+  },
+  "action": {
+    "default_title": "Abrir Copiloto"
+  },
+  "side_panel": {
+    "default_path": "ui/panel.html"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["pkg/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' https://generativelanguage.googleapis.com"
+  }
+}
