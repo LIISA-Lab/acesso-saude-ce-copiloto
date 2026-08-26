@@ -309,7 +309,7 @@ async function pararEPreencher() {
 
           } else {
               console.warn("[Copiloto] Parou mas não tinha texto válido na tela.");
-              document.getElementById('scribeStatus').innerText = "Nenhum áudio válido capturado na tela.";
+              document.getElementById('scribeStatus').innerText = "Nenhum áudio válido capturado.";
           }
       } else {
           document.getElementById('scribeStatus').innerHTML = `<span style="color:red">Aba de atendimento não encontrada.</span>`;

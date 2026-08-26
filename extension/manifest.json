@@ -3,6 +3,14 @@
   "name": "Copiloto Acesso Saúde CE",
   "version": "1.0.0",
   "description": "Assistente virtual para Telessaúde CE",
+
+"icons": {
+  "16": "ui/images/logo_liisa.png",
+  "32": "ui/images/logo_liisa.png",
+  "48": "ui/images/logo_liisa.png",
+  "128": "ui/images/logo_liisa.png"
+},
+
   "permissions": [
     "sidePanel",
     "activeTab",
