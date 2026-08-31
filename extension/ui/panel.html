@@ -1,80 +1,75 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Copiloto Acesso Saúde</title>
   <link rel="stylesheet" href="styles.css">
-  
+
 </head>
+
 <body>
   <div class="container">
     <header>
-       <img src="images/icone_liisa.png" alt="Logotipo da LIISA" class="logo">
-       <div class="header-title">    
-    <h2>      
-        Copiloto LIISA
-    </h2>
-  </div>
+      <img src="images/icone_liisa.png" alt="Logotipo da LIISA" class="logo">
+      <div class="header-title">
+        <h2>
+          Copiloto LIISA
+        </h2>
+      </div>
 
-  <p>Apoio à Decisão Clínica</p>
+      <p>Apoio à Decisão Clínica</p>
     </header>
 
     <div class="summary-box" id="resumoBox">
       <p>Carregando resumo clínico...</p>
     </div>
 
-<div class="scribe-box" id="scribeBox">
+    <div class="scribe-box" id="scribeBox">
 
-  <div class="scribe-content">
+      <div class="scribe-content">
 
-    <div class="scribe-icon">
-      ✦
+        <div class="scribe-icon">
+          ✦
+        </div>
+
+        <div class="scribe-text">
+          <div class="scribe-info">
+            <strong>
+              <IoMicOutline />
+              Escriba AI
+            </strong>
+
+            <p id="scribeStatus">
+              Clique para gravar a consulta </br>
+              e auto-preencher o prontuário.
+            </p>
+          </div>
+
+          <div class="scribe-controls">
+
+            <button id="btnRecord" class="btn-record" type="button">
+              <span class="record-dot"></span>
+              Gravar consulta
+            </button>
+
+            <button id="btnStop" class="btn-stop" type="button" style="display: none;">
+              <span class="stop-icon"></span>
+              Gravando
+              <div class="timer">
+                <label id="minutes">00</label>:<label id="seconds">00</label>
+              </div>
+            </button>
+
+          </div>
+        </div>
+
+      </div>
+
+      <div id="scribeTranscript" class="scribe-transcript" style="display: none;"></div>
+
     </div>
-
-    <div class="scribe-info">
-      <strong>
-        <IoMicOutline />
-        Escriba AI</strong>
-
-      <p id="scribeStatus">
-        Clique para gravar a consulta </br>
-        e auto-preencher o prontuário.
-      </p>
-    </div>
-
-    <div class="scribe-controls">
-
-      <button
-        id="btnRecord"
-        class="btn-record"
-        type="button"
-      >
-        <span class="record-dot"></span>
-        Gravar consulta
-      </button>
-
-      <button
-        id="btnStop"
-        class="btn-stop"
-        type="button"
-        style="display: none;"
-      >
-        <span class="stop-icon"></span>
-        Parar e preencher
-      </button>
-
-    </div>
-
-  </div>
-
-  <div
-    id="scribeTranscript"
-    class="scribe-transcript"
-    style="display: none;"
-  ></div>
-
-</div>
 
     <div class="chat-container" id="chatContainer">
       <!-- Mensagens vão aqui -->
@@ -89,4 +84,5 @@
   <!-- O JS precisa importar o módulo wasm como ES module -->
   <script type="module" src="panel.js"></script>
 </body>
+
 </html>

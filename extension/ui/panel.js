@@ -92,13 +92,14 @@ async function getVercelTab() {
 
 async function iniciarEscuta() {
   console.log("[Copiloto] Clique no botão Gravar disparado!");
+  resetTimer();
   try {
     const btnRecord = document.getElementById('btnRecord');
     const btnStop = document.getElementById('btnStop');
     
     // Força a troca de display e das classes explicitamente
     if(btnRecord) btnRecord.style.display = 'none';
-    if(btnStop) btnStop.style.display = 'inline-block';
+    if(btnStop) btnStop.style.display = 'inline-flex';
     
     document.getElementById('scribeStatus').innerText = "Gravando... Fale normalmente.";
 
@@ -366,3 +367,30 @@ function addMessage(sender, text, id = null) {
 }
 
 document.addEventListener("DOMContentLoaded", inicializar);
+
+//Timer do gravador
+var minutesLabel = document.getElementById("minutes");
+var secondsLabel = document.getElementById("seconds");
+var totalSeconds = 0;
+setInterval(setTime, 1000);
+
+function setTime() {
+  ++totalSeconds;
+  secondsLabel.innerHTML = pad(totalSeconds % 60);
+  minutesLabel.innerHTML = pad(parseInt(totalSeconds / 60));
+}
+
+function pad(val) {
+  var valString = val + "";
+  if (valString.length < 2) {
+    return "0" + valString;
+  } else {
+    return valString;
+  }
+}
+
+function resetTimer() {
+  totalSeconds = 0;
+  secondsLabel.innerHTML = "00";
+  minutesLabel.innerHTML = "00";
+}
