@@ -99,7 +99,7 @@ async function iniciarEscuta() {
     
     // Força a troca de display e das classes explicitamente
     if(btnRecord) btnRecord.style.display = 'none';
-    if(btnStop) btnStop.style.display = 'inline-flex';
+    if(btnStop) btnStop.style.display = 'flex';
     
     document.getElementById('scribeStatus').innerText = "Gravando... Fale normalmente.";
 
@@ -145,7 +145,7 @@ async function pararEPreencher() {
   const btnStop = document.getElementById('btnStop');
   const btnRecord = document.getElementById('btnRecord');
   if(btnStop) btnStop.style.display = 'none';
-  if(btnRecord) btnRecord.style.display = 'inline-block';
+  if(btnRecord) btnRecord.style.display = 'flex';
 
   // Remove o listener de atualizações textuais usando a API certa de extensões
   if (chrome.runtime.onMessage.hasListener(ouvinteTranscricao)) {
