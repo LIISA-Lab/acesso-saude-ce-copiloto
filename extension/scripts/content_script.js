@@ -57,6 +57,10 @@ function extrairDadosDoDOM() {
     // Só atualiza os dados na memória se achou a Data de Nascimento (Garante que estamos na aba certa)
     if (dataNascimentoStr) {
        if (nomeEncontrado && nomeEncontrado !== "Paciente") {
+          // Nome diferente do que estava guardado = outro paciente -> esvazia o histórico antigo
+           if (nomeEncontrado !== pacienteGlobal.id) {
+               atendimentosGlobais = [];
+           }
            pacienteGlobal.nome = nomeEncontrado;
            pacienteGlobal.id = nomeEncontrado;
        }
@@ -307,7 +311,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 console.log("[Copiloto] Content Script INJETADO com sucesso na página!");
 setTimeout(atualizarContexto, 1500);
 
-  timerVigilante = setInterval(atualizarContexto, 2000);
+  timerVigilante = setInterval(atualizarContexto, 5000);
+
+  // Atualiza na hora quando o médico clica (ex: troca de paciente)
+  document.addEventListener('click', () => {
+    setTimeout(atualizarContexto, 250);
+  });
 
 })(); // Fim do escopo protegido
 

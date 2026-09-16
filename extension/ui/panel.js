@@ -1,7 +1,6 @@
 import init, { responder_chat, processar_historico, estruturar_prontuario } from '../pkg/acesso_saude_ce_copiloto.js';
 
 let resumoJson = null;
-let monitoramentoAtivo = null;
 
 async function inicializar() {
   const resumoDiv = document.getElementById('resumoBox');
@@ -36,7 +35,7 @@ async function inicializar() {
 
           resumoDiv.innerHTML = `
             <strong>Paciente:</strong> ${resumoObj.paciente_id}<br/>
-            <strong>Idade:</strong> ${resumoObj.paciente_idade} anos<br/>
+            <strong>Idade:</strong> ${resumoObj.paciente_idade ? `${resumoObj.paciente_idade} anos` : 'Desconhecida'}<br/>
             <strong>Atendimentos:</strong> ${resumoObj.total_atendimentos}<br/>
             <strong>Último Diagnóstico:</strong> ${resumoObj.ultimo_diagnostico || 'Nenhum'}<br/>
           `;
@@ -62,8 +61,9 @@ async function inicializar() {
   verificarDadosDaTela();
 
   // Fica verificando a cada 1 segundo (Caso o médico clique em outro paciente na página web)
-  if (monitoramentoAtivo) clearInterval(monitoramentoAtivo);
-  monitoramentoAtivo = setInterval(verificarDadosDaTela, 1000);
+  chrome.storage.onChanged.addListener(() => {
+    verificarDadosDaTela();
+  });
 
   document.getElementById('sendBtn').addEventListener('click', handleSend);
   document.getElementById('chatInput').addEventListener('keypress', (e) => {
