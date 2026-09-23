@@ -3,6 +3,8 @@ import init, { responder_chat, processar_historico, estruturar_prontuario } from
 let resumoJson = null;
 
 async function inicializar() {
+  chrome.runtime.connect({ name: 'painel'}); // Conseguir indexar a conexção
+  
   const resumoDiv = document.getElementById('resumoBox');
 
   try {
