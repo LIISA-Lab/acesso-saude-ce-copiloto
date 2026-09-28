@@ -14,18 +14,45 @@
   };
   let atendimentosGlobais = [];
 
-  // Recupera dados antigos caso a página tenha sido recarregada (F5) direto na tela de vídeo
-  chrome.storage.local.get(['dadosBrutosDaTela'], (result) => {
-    if (result && result.dadosBrutosDaTela) {
-      try {
-        let parseado = JSON.parse(result.dadosBrutosDaTela);
-        if (parseado && parseado.paciente && parseado.paciente.nome !== "Aguardando navegação...") {
-          pacienteGlobal = parseado.paciente;
-          atendimentosGlobais = parseado.atendimentos || [];
-          console.log("[Copiloto] Histórico restaurado da memória local com sucesso (Sobreviveu ao F5).");
-        }
-      } catch (e) { }
+  // Flag de corrida: evita que o restore do storage (assíncrono) sobrescreva
+  // dados que a varredura do DOM já capturou corretamente enquanto esperávamos essa resposta.
+  let dadosJaExtraidosDoDOM = false;
+
+  // ID desta aba específica. É a peça central da correção: se o médico tiver DUAS abas
+  // abertas (dois atendimentos/pacientes diferentes ao mesmo tempo), cada content script
+  // precisa gravar numa CHAVE DE STORAGE PRÓPRIA — senão as duas abas ficam sobrescrevendo
+  // o mesmo dado global e o painel (que é por JANELA, não por aba) mostra ora um, ora outro.
+  let meuTabId = null;
+
+  function chaveStorageDestaAba() {
+    return meuTabId !== null ? `dadosBrutosDaTela_${meuTabId}` : null;
+  }
+
+  // Pergunta ao background.js qual é o ID desta aba (content script não tem acesso direto a chrome.tabs)
+  chrome.runtime.sendMessage({ action: "GET_TAB_ID" }, (resposta) => {
+    meuTabId = resposta && typeof resposta.tabId === "number" ? resposta.tabId : null;
+    if (meuTabId === null) {
+      console.warn("[Copiloto] Não foi possível obter o ID da aba; o isolamento por aba não vai funcionar aqui.");
+      return;
     }
+
+    // Recupera dados antigos DESTA ABA (e só desta aba) caso a página tenha sido recarregada (F5)
+    // Usamos chrome.storage.local: funciona sem nenhuma configuração extra no background.js
+    // (chrome.storage.session exige uma liberação explícita de acesso para content scripts).
+    chrome.storage.local.get([chaveStorageDestaAba()], (result) => {
+      if (dadosJaExtraidosDoDOM) return; // já temos dados frescos do DOM, ignora o restore antigo
+      const bruto = result && result[chaveStorageDestaAba()];
+      if (bruto) {
+        try {
+          let parseado = JSON.parse(bruto);
+          if (parseado && parseado.paciente && parseado.paciente.nome !== "Aguardando navegação...") {
+            pacienteGlobal = parseado.paciente;
+            atendimentosGlobais = parseado.atendimentos || [];
+            console.log("[Copiloto] Histórico desta aba restaurado com sucesso (Sobreviveu ao F5).");
+          }
+        } catch (e) { }
+      }
+    });
   });
 
   // Verifica a URL da página (Como a Vercel pode esconder a URL base no SPA, rodamos independente da rota)
@@ -37,6 +64,7 @@
 
       let dataNascimentoStr = null;
       let nomeEncontrado = null;
+      let containerPaciente = null; // guarda o bloco do paciente ATUAL para escopar o CPF também
 
       for (const p of ps) {
         if (p.innerText.includes("Data de Nascimento:")) {
@@ -44,6 +72,7 @@
 
           // Para evitar pegar um "h5" errado da tela, procuramos o Nome exatamente dentro do mesmo bloco da Data de Nascimento
           const containerPai = p.closest('.flex-grow-1') || p.parentElement.parentElement;
+          containerPaciente = containerPai;
           if (containerPai) {
             const h5 = containerPai.querySelector('h5');
             if (h5) {
@@ -56,7 +85,12 @@
 
       // Só atualiza os dados na memória se achou a Data de Nascimento (Garante que estamos na aba certa)
       if (dataNascimentoStr) {
-        const cpfMatch = document.body.innerText.match(/\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/);
+        // IMPORTANTE: procura o CPF apenas dentro do bloco do paciente atual (containerPaciente),
+        // nunca em document.body.innerText inteiro — a tela pode ter CPFs de outros
+        // atendimentos visíveis ao mesmo tempo (fila, lista lateral, etc.), e pegar o
+        // primeiro CPF da página inteira fazia a extensão "trocar" de paciente sozinha.
+        const escopoBusca = (containerPaciente && containerPaciente.innerText) || "";
+        const cpfMatch = escopoBusca.match(/\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/);
         if (cpfMatch && cpfMatch[0] !== pacienteGlobal.cpf) {
           atendimentosGlobais = []; // CPF diferente do que estava guardado = outro paciente -> esvazia o histórico antigo
           pacienteGlobal.cpf = cpfMatch[0];
@@ -226,10 +260,13 @@
       // 1. Extrai o dado do DOM
       const dadosBrutos = extrairDadosDoDOM();
 
-      // 2. Salva no banco de dados local do Chrome apenas se tivermos dados reais,
-      // para não apagar o histórico se o médico der F5 na tela de vídeo onde não tem dados do paciente visualmente.
-      if (pacienteGlobal.nome !== "Aguardando navegação...") {
-        chrome.storage.local.set({ dadosBrutosDaTela: dadosBrutos });
+      // 2. Salva no storage apenas se tivermos dados reais, e SEMPRE na chave própria desta aba
+      // (dadosBrutosDaTela_<tabId>) — nunca numa chave compartilhada, para não brigar com outras
+      // abas/atendimentos abertos ao mesmo tempo. Se ainda não sabemos nosso tabId, aguardamos.
+      const chave = chaveStorageDestaAba();
+      if (pacienteGlobal.nome !== "Aguardando navegação..." && chave) {
+        dadosJaExtraidosDoDOM = true; // trava o restore antigo do storage, não deixa mais sobrescrever
+        chrome.storage.local.set({ [chave]: dadosBrutos });
       }
     } catch (e) {
       if (e.message && e.message.includes("Extension context invalidated")) {
@@ -319,9 +356,12 @@
 
   timerVigilante = setInterval(atualizarContexto, 5000);
 
-  // Atualiza na hora quando o médico clica (ex: troca de paciente)
+  // Atualiza na hora quando o médico clica (ex: troca de paciente/atendimento)
+  // 600ms em vez de 250ms: dá tempo do React terminar de re-renderizar a tela
+  // após a navegação, evitando capturar um DOM "a meio caminho" (dados do
+  // atendimento anterior ainda visíveis) e gravar isso por cima do dado certo.
   document.addEventListener('click', () => {
-    setTimeout(atualizarContexto, 250);
+    setTimeout(atualizarContexto, 600);
   });
 
 })(); // Fim do escopo protegido

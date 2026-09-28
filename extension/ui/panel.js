@@ -2,6 +2,32 @@ import init, { responder_chat, processar_historico, estruturar_prontuario } from
 
 let resumoJson = null;
 
+// ID da aba que o painel está "seguindo" no momento. O painel lateral (side_panel) é POR JANELA,
+// não por aba — ele continua visível não importa qual aba está em foco. Sem rastrear isso, se o
+// médico tiver duas abas de atendimento abertas, o painel podia acabar mostrando dados de
+// qualquer uma delas, dependendo de qual escreveu no storage por último.
+let tabIdAtual = null;
+
+// Identifica de forma única "qual atendimento" está sendo mostrado agora (aba + paciente).
+// Usado para detectar troca de atendimento e então limpar o chat automaticamente.
+let identidadeAtendimentoAtual = null;
+
+// Descobre qual aba do Acesso Saúde CE devemos seguir agora:
+// 1) prioridade para a aba ATIVA desta janela, se for do Acesso Saúde CE;
+// 2) senão, cai para a primeira aba do Acesso Saúde CE aberta nesta janela (ativa está em outro site).
+async function obterTabAlvo() {
+  try {
+    const ativa = await chrome.tabs.query({ active: true, currentWindow: true, url: "*://*.vercel.app/*" });
+    if (ativa.length > 0) return ativa[0].id;
+
+    const outras = await chrome.tabs.query({ currentWindow: true, url: "*://*.vercel.app/*" });
+    return outras.length > 0 ? outras[0].id : null;
+  } catch (e) {
+    console.error("[Copiloto] Erro ao localizar a aba alvo:", e);
+    return null;
+  }
+}
+
 async function inicializar() {
   chrome.runtime.connect({ name: 'painel'}); // Conseguir indexar a conexção
   
@@ -20,17 +46,44 @@ async function inicializar() {
   resumoDiv.innerHTML = "<p>Wasm carregado. Monitorando a tela...</p>";
 
   // Função que puxa o texto bruto extraído da tela, processa no RUST e mostra na tela
-  function verificarDadosDaTela() {
-    chrome.storage.local.get(['dadosBrutosDaTela'], (result) => {
+  async function verificarDadosDaTela() {
+    tabIdAtual = await obterTabAlvo();
+
+    if (tabIdAtual === null) {
+      resumoDiv.innerHTML = `
+        <p style='color:orange;'>
+          Nenhuma aba do Acesso Saúde CE encontrada nesta janela.<br>
+          Acesse um paciente na página de <strong>agendamentos</strong>.
+        </p>`;
+      return;
+    }
+
+    const chave = `dadosBrutosDaTela_${tabIdAtual}`;
+
+    chrome.storage.local.get([chave], (result) => {
       if (chrome.runtime.lastError) {
          resumoDiv.innerHTML = `<p style='color:red;'>Erro no storage: ${chrome.runtime.lastError.message}</p>`;
          return;
       }
 
-      if (result && result.dadosBrutosDaTela) {
+      const dadosBrutosDaTela = result && result[chave];
+
+      if (dadosBrutosDaTela) {
         try {
           // CHAMA O RUST AQUI NO SIDE PANEL
-          const resumoObj = processar_historico(result.dadosBrutosDaTela);
+          const resumoObj = processar_historico(dadosBrutosDaTela);
+
+          // Identidade do atendimento mostrado agora = aba + paciente. Comparamos com a anterior:
+          // se mudou (trocou de aba, ou trocou de paciente dentro da mesma aba), é um atendimento
+          // novo e o chat da conversa anterior não faz mais sentido para o contexto atual.
+          const novaIdentidade = `${tabIdAtual}::${resumoObj.paciente_id}`;
+          const trocouDeAtendimento =
+            identidadeAtendimentoAtual !== null && identidadeAtendimentoAtual !== novaIdentidade;
+
+          if (trocouDeAtendimento) {
+            limparChat();
+          }
+          identidadeAtendimentoAtual = novaIdentidade;
 
           // Salva como String JSON pra enviar pro LLM depois
           resumoJson = JSON.stringify(resumoObj);
@@ -52,7 +105,7 @@ async function inicializar() {
       } else {
         resumoDiv.innerHTML = `
           <p style='color:orange;'>
-            Nenhum histórico encontrado.<br>
+            Nenhum histórico encontrado ainda para esta aba.<br>
             Acesse um paciente na página de <strong>agendamentos</strong>.
           </p>`;
       }
@@ -62,9 +115,15 @@ async function inicializar() {
   // Verifica imediatamente
   verificarDadosDaTela();
 
-  // Fica verificando a cada 1 segundo (Caso o médico clique em outro paciente na página web)
-  chrome.storage.onChanged.addListener(() => {
-    verificarDadosDaTela();
+  // Reage a qualquer escrita no storage (dados novos chegando da aba que estamos seguindo)
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local') verificarDadosDaTela();
+  });
+
+  // Reage à troca de aba dentro da mesma janela (o médico saiu do atendimento A e foi pro B)
+  chrome.tabs.onActivated.addListener(() => verificarDadosDaTela());
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (changeInfo.status === 'complete') verificarDadosDaTela();
   });
 
   document.getElementById('sendBtn').addEventListener('click', handleSend);
@@ -78,9 +137,18 @@ async function inicializar() {
 }
 
 async function getVercelTab() {
-  // A mesma proteção que adicionei em pararEPreencher deve estar em getVercelTab
+  // Prioriza a aba que o painel está seguindo agora (tabIdAtual), para que a gravação/preenchimento
+  // aconteça sempre no atendimento que está sendo exibido no painel — nunca numa aba errada.
   try {
-      const tabs = await chrome.tabs.query({url: "*://*.vercel.app/*"}); // Mais flexível
+      if (tabIdAtual !== null) {
+        try {
+          const tab = await chrome.tabs.get(tabIdAtual);
+          if (tab) return tab;
+        } catch (e) {
+          // Aba foi fechada ou não existe mais; cai no fallback abaixo
+        }
+      }
+      const tabs = await chrome.tabs.query({url: "*://*.vercel.app/*"}); // fallback mais flexível
       return tabs.length > 0 ? tabs[0] : null;
   } catch (e) {
       console.error("[Copiloto] Erro em getVercelTab:", e);
@@ -366,6 +434,13 @@ function addMessage(sender, text, id = null) {
 
   container.appendChild(msgDiv);
   container.scrollTop = container.scrollHeight;
+}
+
+// Esvazia o histórico de mensagens do chat. Chamada sempre que detectamos que o painel
+// passou a mostrar um atendimento diferente do anterior (troca de aba ou troca de paciente).
+function limparChat() {
+  const container = document.getElementById('chatContainer');
+  container.innerHTML = '';
 }
 
 document.addEventListener("DOMContentLoaded", inicializar);
