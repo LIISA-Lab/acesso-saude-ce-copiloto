@@ -23,3 +23,6 @@ dotenvy_macro = "0.15.7"
 opt-level = "z"
 lto = true
 codegen-units = 1
+
+[build-dependencies]
+dotenvy = "0.15.7"
