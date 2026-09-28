@@ -25,6 +25,8 @@ pub struct Historico {
     pub paciente: Paciente,
     pub atendimentos: Vec<Atendimento>,
     pub alergias: Vec<String>,
+    pub total_atendimentos: usize,
+    pub ultimo_diagnostico: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
