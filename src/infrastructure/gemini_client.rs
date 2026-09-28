@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsValue;
 
+// Definido pelo build.rs a partir de GEMINI_MODEL (padrão: gemini-3.6-flash)
+const GEMINI_MODEL: &str = env!("GEMINI_MODEL");
+
 #[derive(Serialize)]
 struct GeminiRequest {
     contents: Vec<GeminiContent>,
@@ -43,13 +46,14 @@ pub async fn chamar_gemini(prompt: String, api_key: &str) -> Result<String, JsVa
     }
 
     let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={}",
-        api_key
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+        GEMINI_MODEL, api_key
     );
 
     // Adicionamos logs no console do navegador para debugar a URL antes de enviar
     web_sys::console::log_1(&JsValue::from_str(&format!(
-        "[Copiloto-Wasm] Enviando request para LLM (Tamanho da chave: {})",
+        "[Copiloto-Wasm] Enviando request para LLM (Modelo: {}, Tamanho da chave: {})",
+        GEMINI_MODEL,
         api_key.len()
     )));
 

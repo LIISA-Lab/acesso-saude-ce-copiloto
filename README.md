@@ -95,7 +95,19 @@ cd acesso-saude-ce-copiloto
 ```
 
 
-2. **Compile o projeto Rust para Wasm:**
+2. **Configure o `.env` na raiz do projeto:**
+```bash
+cp .env.example .env
+
+```
+
+> Preencha `GEMINI_API_KEY` com sua chave. `GEMINI_MODEL` é opcional (padrão: `gemini-3.6-flash`).
+
+
+> As variáveis são embutidas no `.wasm` em tempo de compilação; após alterá-las, recompile.
+
+
+3. **Compile o projeto Rust para Wasm:**
 ```bash
 wasm-pack build --target web --release
 
