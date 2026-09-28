@@ -6,10 +6,8 @@ pub struct Summarizer;
 impl Summarizer {
     pub fn gerar_resumo(historico: &Historico) -> ResumoClinico {
         // Encontrar último diagnóstico e conduta (O mais recente é o index 0 na interface)
-        let ultimo_diagnostico = historico
-            .atendimentos
-            .first()
-            .map(|a| a.hipotese_diagnostica.clone());
+        let ultimo_diagnostico = historico.ultimo_diagnostico.clone();
+
         let ultima_conduta = historico
             .atendimentos
             .first()
@@ -19,7 +17,7 @@ impl Summarizer {
             paciente_idade: historico.paciente.idade,
             paciente_id: historico.paciente.id.clone(),
             alergias: historico.alergias.clone(),
-            total_atendimentos: historico.atendimentos.len(),
+            total_atendimentos: historico.total_atendimentos.clone(),
             ultimo_diagnostico,
             ultima_conduta,
             historico_atendimentos: historico.atendimentos.clone(),

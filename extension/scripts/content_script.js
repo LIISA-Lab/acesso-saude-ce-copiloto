@@ -13,6 +13,8 @@
     idade: 0
   };
   let atendimentosGlobais = [];
+  let total_atendimentosGlobal = 0;
+  let ultimo_diagnosticoGlobal = "Nenhum";
 
   // Recupera dados antigos caso a página tenha sido recarregada (F5) direto na tela de vídeo
   chrome.storage.local.get(['dadosBrutosDaTela'], (result) => {
@@ -22,177 +24,246 @@
         if (parseado && parseado.paciente && parseado.paciente.nome !== "Aguardando navegação...") {
           pacienteGlobal = parseado.paciente;
           atendimentosGlobais = parseado.atendimentos || [];
+          total_atendimentosGlobal = parseado.total_atendimentos || 0;
+          ultimo_diagnosticoGlobal = parseado.ultimo_diagnostico || "Nenhum";
           console.log("[Copiloto] Histórico restaurado da memória local com sucesso (Sobreviveu ao F5).");
         }
       } catch (e) { }
     }
   });
 
+  // Converte o timestamp Unix (segundos) do sessionStorage para o formato usado na raspagem
+  function formatarDataHora(timestamp) {
+    if (!timestamp) return "Data Indisponível";
+    const d = new Date(timestamp * 1000);
+    return d.toLocaleString('pt-BR');
+  }
+
   // Verifica a URL da página (Como a Vercel pode esconder a URL base no SPA, rodamos independente da rota)
   // Simula a extração de dados da tela. O ideal aqui no futuro é ler o DOM de verdade
   function extrairDadosDoDOM() {
     // 1. Extrair Dados do Paciente (Atualiza apenas se a aba 'Consulta' estiver aberta com os dados)
     try {
-      const ps = document.querySelectorAll('p.text-muted');
+      const totalAtendimentos = parseInt(sessionStorage.getItem('n_atendimentos')) || 0;
+      const ultimoDiagnostico = sessionStorage.getItem('ultimo_diagnostico') || "Nenhum";
 
-      let dataNascimentoStr = null;
-      let nomeEncontrado = null;
-
-      for (const p of ps) {
-        if (p.innerText.includes("Data de Nascimento:")) {
-          dataNascimentoStr = p.innerText.split("Data de Nascimento:")[1].trim(); // ex: "22/11/1978"
-
-          // Para evitar pegar um "h5" errado da tela, procuramos o Nome exatamente dentro do mesmo bloco da Data de Nascimento
-          const containerPai = p.closest('.flex-grow-1') || p.parentElement.parentElement;
-          if (containerPai) {
-            const h5 = containerPai.querySelector('h5');
-            if (h5) {
-              nomeEncontrado = h5.innerText.trim();
-            }
-          }
-          break;
-        }
+      if (totalAtendimentos !== total_atendimentosGlobal) {
+        total_atendimentosGlobal = totalAtendimentos;
       }
-
-      // Só atualiza os dados na memória se achou a Data de Nascimento (Garante que estamos na aba certa)
-      if (dataNascimentoStr) {
-        const cpfMatch = document.body.innerText.match(/\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/);
-        if (cpfMatch && cpfMatch[0] !== pacienteGlobal.cpf) {
-          atendimentosGlobais = []; // CPF diferente do que estava guardado = outro paciente -> esvazia o histórico antigo
-          pacienteGlobal.cpf = cpfMatch[0];
-        }
-
-        if (nomeEncontrado && nomeEncontrado !== "Paciente") {
-          // Nome diferente do que estava guardado = outro paciente -> esvazia o histórico antigo
-          if (nomeEncontrado !== pacienteGlobal.nome) {
-            atendimentosGlobais = [];
-          }
-          pacienteGlobal.nome = nomeEncontrado;
-          pacienteGlobal.id = nomeEncontrado;
-        }
-
-        const partes = dataNascimentoStr.split("/");
-        if (partes.length === 3) {
-          const dataNasc = new Date(partes[2], partes[1] - 1, partes[0]);
-          const hoje = new Date();
-          let idade = hoje.getFullYear() - dataNasc.getFullYear();
-          const m = hoje.getMonth() - dataNasc.getMonth();
-          if (m < 0 || (m === 0 && hoje.getDate() < dataNasc.getDate())) {
-            idade--;
-          }
-          pacienteGlobal.idade = idade;
-        }
+      if (ultimoDiagnostico !== ultimo_diagnosticoGlobal) {
+        ultimo_diagnosticoGlobal = ultimoDiagnostico;
       }
+    } catch (e) {
+      console.error("[Copiloto] Erro ao buscar resumo:", e);
+    }
+
+    try {
+      const nome = sessionStorage.getItem('paciente_nome') || "Aguardando navegação...";
+      const idade = parseInt(sessionStorage.getItem('paciente_idade')) || 0;
+
+      if (nome !== pacienteGlobal.nome || idade !== pacienteGlobal.idade) {
+        pacienteGlobal.nome = nome;
+        pacienteGlobal.idade = idade;
+        pacienteGlobal.id = nome;
+      };
     } catch (e) {
       console.error("[Copiloto] Erro ao buscar paciente:", e);
     }
 
-    // 2. Extrair o Histórico de Atendimentos
     try {
-      // Encontra todos os "resumos" (cabeçalhos) dos Accordions do Material-UI
-      const resumos = document.querySelectorAll('.MuiAccordionSummary-content');
+      const historicoBruto = sessionStorage.getItem('historico');
 
-      // Fallback: se não achar pelo MuiAccordionSummary, tenta achar as datas que você me passou
-      let elementsBase = resumos;
-      if (elementsBase.length === 0) {
-        elementsBase = document.querySelectorAll('strong.text-dark');
-      }
+      //Se encontrou dados de histórico na tela, vamos montar a lista
+      if (historicoBruto && historicoBruto.length > 0) {
+        const historico = JSON.parse(historicoBruto);
 
-      // Se encontrou dados de histórico na tela, vamos montar a lista
-      if (elementsBase.length > 0) {
-        const atendimentos = [];
-
-        elementsBase.forEach(el => {
-          let resumo = el;
-          // Se caiu no fallback das datas, precisamos subir alguns nós para pegar a barra inteira
-          if (resumos.length === 0) {
-            resumo = el.parentElement.parentElement;
-          }
-
-          const dataHoraEl = resumo.querySelector('strong.text-dark');
-          const especialidadeEl = resumo.querySelector('.badge.bg-secondary');
-          const profissionalEl = resumo.querySelector('.badge.bg-info');
-
-          let dataHora = dataHoraEl ? dataHoraEl.innerText.trim() : "Data Indisponível";
-          let especialidade = especialidadeEl ? especialidadeEl.innerText.replace('Especialidade:', '').trim() : "";
-          let profissionalNome = profissionalEl ? profissionalEl.innerText.replace('Profissional de Saúde:', '').trim() : "";
-
-          let anamnese = "Card fechado na interface. Expanda para ler.";
-          let hipotese = "Indisponível";
-          let conduta = "Indisponível";
-          let observacoes = "Indisponível";
-
-          // Tratamento robusto para não quebrar a página se as tags não existirem
-          try {
-            const accordionPai = resumo.closest('.MuiAccordion-root');
-
-            if (accordionPai) {
-              const textoGeral = accordionPai.innerText || "";
-
-              const extractSection = (regexStart, regexEnd) => {
-                const startMatch = textoGeral.match(regexStart);
-                if (!startMatch) return "";
-                const startIndex = startMatch.index + startMatch[0].length;
-                let endIndex = textoGeral.length;
-                if (regexEnd) {
-                  const endMatch = textoGeral.substring(startIndex).match(regexEnd);
-                  if (endMatch) endIndex = startIndex + endMatch.index;
-                }
-                return textoGeral.substring(startIndex, endIndex).trim();
-              };
-
-              // Só extrai se achar a palavra chave, caso contrário assume que o card tá fechado
-              if (textoGeral.toUpperCase().includes("ANAMNESE")) {
-                anamnese = extractSection(/ANAMNESE/i, /HIPÓTESE DIAGNÓSTICA/i) || anamnese;
-                hipotese = extractSection(/HIPÓTESE DIAGNÓSTICA/i, /CONDUTA MÉDICA/i) || hipotese;
-                conduta = extractSection(/CONDUTA MÉDICA/i, /OBSERVAÇÕES ADICIONAIS/i) || conduta;
-                observacoes = extractSection(/OBSERVAÇÕES ADICIONAIS/i, null) || observacoes;
-              }
-            }
-          } catch (errInner) {
-            console.warn("[Copiloto] Erro lendo detalhes de uma consulta:", errInner);
-          }
-
-          atendimentos.push({
-            data_hora: dataHora,
-            especialidade: especialidade,
-            profissional_nome: profissionalNome,
-            profissional_crm: "",
-            anamnese: anamnese,
-            hipotese_diagnostica: hipotese,
-            conduta_medica: conduta,
-            observacoes_adicionais: observacoes
-          });
-        });
-
-        // Resolve o problema do React renderizar os mesmos cards duplicados (Desktop vs Mobile ocultos)
-        // Usamos um Map para remover duplicatas baseando-se na data_hora única
-        const mapaUnicos = new Map();
-        atendimentos.forEach(a => {
-          if (a.data_hora !== "Data Indisponível") {
-            mapaUnicos.set(a.data_hora, a);
-          }
-        });
-
-        const atendimentosDesduplicados = Array.from(mapaUnicos.values());
+        const atendimentos = historico.map(el => ({
+          data_hora: formatarDataHora(el.data_hora),
+          especialidade: el.medico?.perfil_medico?.especialidade || "Indisponível",
+          profissional_nome: el.medico?.nome_completo || "Indisponível",
+          profissional_crm: "",
+          anamnese: el.prontuario?.anamnese || "Indisponível",
+          hipotese_diagnostica: el.prontuario?.diagnosticHypothesis || "Indisponível",
+          conduta_medica: el.prontuario?.conduct || "Indisponível",
+          observacoes_adicionais: el.prontuario?.observations || "Indisponível",
+        }))
 
         // Atualiza o histórico global na memória APENAS se encontrou novos atendimentos na tela
-        if (atendimentosDesduplicados.length > 0) {
-          atendimentosGlobais = atendimentosDesduplicados;
+        if (atendimentos.length > 0) {
+          atendimentosGlobais = atendimentos;
         }
       }
     } catch (e) {
-      console.error("[Copiloto] Erro varrendo histórico:", e);
+      console.warn("[Copiloto] Erro varrendo histórico:", e);
     }
 
     // Retorna os dados UNIFICADOS da memória (sobrevivem à troca de abas)
     return JSON.stringify({
       paciente: pacienteGlobal,
       atendimentos: atendimentosGlobais,
-      alergias: []
+      alergias: [],
+      total_atendimentos: total_atendimentosGlobal,
+      ultimo_diagnostico: ultimo_diagnosticoGlobal,
     });
   }
+  /*
+  let dataNascimentoStr = null;
+  let nomeEncontrado = null;
 
+  for (const p of ps) {
+    if (p.innerText.includes("Data de Nascimento:")) {
+      dataNascimentoStr = p.innerText.split("Data de Nascimento:")[1].trim(); // ex: "22/11/1978"
+
+      // Para evitar pegar um "h5" errado da tela, procuramos o Nome exatamente dentro do mesmo bloco da Data de Nascimento
+      const containerPai = p.closest('.flex-grow-1') || p.parentElement.parentElement;
+      if (containerPai) {
+        const h5 = containerPai.querySelector('h5');
+        if (h5) {
+          nomeEncontrado = h5.innerText.trim();
+        }
+      }
+      break;
+    }
+  }
+
+  // Só atualiza os dados na memória se achou a Data de Nascimento (Garante que estamos na aba certa)
+  if (dataNascimentoStr) {
+    const cpfMatch = document.body.innerText.match(/\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/);
+    if (cpfMatch && cpfMatch[0] !== pacienteGlobal.cpf) {
+      atendimentosGlobais = []; // CPF diferente do que estava guardado = outro paciente -> esvazia o histórico antigo
+      pacienteGlobal.cpf = cpfMatch[0];
+    }
+
+    if (nomeEncontrado && nomeEncontrado !== "Paciente") {
+      // Nome diferente do que estava guardado = outro paciente -> esvazia o histórico antigo
+      if (nomeEncontrado !== pacienteGlobal.nome) {
+        atendimentosGlobais = [];
+      }
+      pacienteGlobal.nome = nomeEncontrado;
+      pacienteGlobal.id = nomeEncontrado;
+    }
+
+    const partes = dataNascimentoStr.split("/");
+    if (partes.length === 3) {
+      const dataNasc = new Date(partes[2], partes[1] - 1, partes[0]);
+      const hoje = new Date();
+      let idade = hoje.getFullYear() - dataNasc.getFullYear();
+      const m = hoje.getMonth() - dataNasc.getMonth();
+      if (m < 0 || (m === 0 && hoje.getDate() < dataNasc.getDate())) {
+        idade--;
+      }
+      pacienteGlobal.idade = idade;
+    }
+  }
+} catch (e) {
+  console.error("[Copiloto] Erro ao buscar paciente:", e);
+} */
+  /*
+// 2. Extrair o Histórico de Atendimentos
+try {
+  // Encontra todos os "resumos" (cabeçalhos) dos Accordions do Material-UI
+  const resumos = document.querySelectorAll('.MuiAccordionSummary-content');
+
+  // Fallback: se não achar pelo MuiAccordionSummary, tenta achar as datas que você me passou
+  let elementsBase = resumos;
+  if (elementsBase.length === 0) {
+    elementsBase = document.querySelectorAll('strong.text-dark');
+  }
+
+  // Se encontrou dados de histórico na tela, vamos montar a lista
+  if (elementsBase.length > 0) {
+    const atendimentos = [];
+
+    elementsBase.forEach(el => {
+      let resumo = el;
+      // Se caiu no fallback das datas, precisamos subir alguns nós para pegar a barra inteira
+      if (resumos.length === 0) {
+        resumo = el.parentElement.parentElement;
+      }
+
+      const dataHoraEl = resumo.querySelector('strong.text-dark');
+      const especialidadeEl = resumo.querySelector('.badge.bg-secondary');
+      const profissionalEl = resumo.querySelector('.badge.bg-info');
+
+      let dataHora = dataHoraEl ? dataHoraEl.innerText.trim() : "Data Indisponível";
+      let especialidade = especialidadeEl ? especialidadeEl.innerText.replace('Especialidade:', '').trim() : "";
+      let profissionalNome = profissionalEl ? profissionalEl.innerText.replace('Profissional de Saúde:', '').trim() : "";
+
+      let anamnese = "Card fechado na interface. Expanda para ler.";
+      let hipotese = "Indisponível";
+      let conduta = "Indisponível";
+      let observacoes = "Indisponível";
+
+      // Tratamento robusto para não quebrar a página se as tags não existirem
+      try {
+        const accordionPai = resumo.closest('.MuiAccordion-root');
+
+        if (accordionPai) {
+          const textoGeral = accordionPai.innerText || "";
+
+          const extractSection = (regexStart, regexEnd) => {
+            const startMatch = textoGeral.match(regexStart);
+            if (!startMatch) return "";
+            const startIndex = startMatch.index + startMatch[0].length;
+            let endIndex = textoGeral.length;
+            if (regexEnd) {
+              const endMatch = textoGeral.substring(startIndex).match(regexEnd);
+              if (endMatch) endIndex = startIndex + endMatch.index;
+            }
+            return textoGeral.substring(startIndex, endIndex).trim();
+          };
+
+          // Só extrai se achar a palavra chave, caso contrário assume que o card tá fechado
+          if (textoGeral.toUpperCase().includes("ANAMNESE")) {
+            anamnese = extractSection(/ANAMNESE/i, /HIPÓTESE DIAGNÓSTICA/i) || anamnese;
+            hipotese = extractSection(/HIPÓTESE DIAGNÓSTICA/i, /CONDUTA MÉDICA/i) || hipotese;
+            conduta = extractSection(/CONDUTA MÉDICA/i, /OBSERVAÇÕES ADICIONAIS/i) || conduta;
+            observacoes = extractSection(/OBSERVAÇÕES ADICIONAIS/i, null) || observacoes;
+          }
+        }
+      } catch (errInner) {
+        console.warn("[Copiloto] Erro lendo detalhes de uma consulta:", errInner);
+      }
+
+      atendimentos.push({
+        data_hora: dataHora,
+        especialidade: especialidade,
+        profissional_nome: profissionalNome,
+        profissional_crm: "",
+        anamnese: anamnese,
+        hipotese_diagnostica: hipotese,
+        conduta_medica: conduta,
+        observacoes_adicionais: observacoes
+      });
+    });
+
+    // Resolve o problema do React renderizar os mesmos cards duplicados (Desktop vs Mobile ocultos)
+    // Usamos um Map para remover duplicatas baseando-se na data_hora única
+    const mapaUnicos = new Map();
+    atendimentos.forEach(a => {
+      if (a.data_hora !== "Data Indisponível") {
+        mapaUnicos.set(a.data_hora, a);
+      }
+    });
+
+    const atendimentosDesduplicados = Array.from(mapaUnicos.values());
+
+    // Atualiza o histórico global na memória APENAS se encontrou novos atendimentos na tela
+    if (atendimentosDesduplicados.length > 0) {
+      atendimentosGlobais = atendimentosDesduplicados;
+    }
+  }
+} catch (e) {
+  console.error("[Copiloto] Erro varrendo histórico:", e);
+}
+
+// Retorna os dados UNIFICADOS da memória (sobrevivem à troca de abas)
+return JSON.stringify({
+  paciente: pacienteGlobal,
+  atendimentos: atendimentosGlobais,
+  alergias: []
+}); */
+  /*
   // Força a abertura das sanfonas do Material-UI para o React renderizar os textos ocultos
   function autoExpandirHistorico() {
     try {
@@ -213,7 +284,7 @@
       console.error("[Copiloto] Erro ao tentar expandir histórico:", e);
     }
   }
-
+  */
   // Como o site é um SPA (Single Page Application - React/NextJS), a URL muda mas a página não recarrega.
   // Para resolver isso, usamos um pequeno monitor (polling) que sempre envia o que está na tela pro Storage
   let timerVigilante = null;
@@ -221,7 +292,7 @@
   function atualizarContexto() {
     try {
       // 0. Engana o React forçando a abertura dos históricos para ler os textos ocultos
-      autoExpandirHistorico();
+      // autoExpandirHistorico();
 
       // 1. Extrai o dado do DOM
       const dadosBrutos = extrairDadosDoDOM();
@@ -315,9 +386,9 @@
 
   // Roda a extração pela primeira vez imediatamente, aguardando o tempo do React montar a tela
   console.log("[Copiloto] Content Script INJETADO com sucesso na página!");
-  setTimeout(atualizarContexto, 1500);
+  atualizarContexto();
 
-  timerVigilante = setInterval(atualizarContexto, 5000);
+  timerVigilante = setInterval(atualizarContexto, 1000);
 
   // Atualiza na hora quando o médico clica (ex: troca de paciente)
   document.addEventListener('click', () => {
