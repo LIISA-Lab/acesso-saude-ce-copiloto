@@ -2,8 +2,19 @@ import init, { responder_chat, processar_historico, estruturar_prontuario } from
 
 let resumoJson = null;
 
+
+
+function mensagemErro(err) {
+  const txt = String(err?.message ?? err);
+  if (/503|UNAVAILABLE|high demand/i.test(txt)) return "A IA está com uma alta demanda. Tente novamente em breve...";
+  if (/429|RESOURCE_EXHAUSTED/i.test(txt))       return "Limite de requisições atingido. Tente novamente em breve...";
+  if (/401|403|api key/i.test(txt))              return "Problema com a chave da API. Tente novamente em breve...";
+  if (/failed to fetch|network/i.test(txt))      return "Sem conexão com a internet.";
+  return "Não foi possível obter resposta da IA. Tente novamente.";
+}
+
 async function inicializar() {
-  chrome.runtime.connect({ name: 'painel'}); // Conseguir indexar a conexção
+  chrome.runtime.connect({ name: 'painel'}); // Conseguir indexar a conexão
   
   const resumoDiv = document.getElementById('resumoBox');
 
@@ -176,7 +187,7 @@ async function pararEPreencher() {
           }
 
           if (textoDaTela && textoDaTela.trim() !== "" && textoDaTela !== "Aguardando áudio...") {
-              if(scribeTransElement) scribeTransElement.innerText = textoDaTela + "\n\n[Enviando para o Gemini, aguarde...]";
+                if (scribeTransElement) scribeTransElement.innerText = textoDaTela;
               if(scribeTransElement) scribeTransElement.scrollTop = scribeTransElement.scrollHeight;
 
               document.getElementById('scribeStatus').innerHTML = "<strong>Passo 2/3:</strong> IA Estruturando Prontuário (Pode levar até 15s)...";
@@ -196,8 +207,8 @@ async function pararEPreencher() {
               }
 
               if (estruturado.error) {
-                  console.error("[Copiloto] O Rust devolveu um erro de IA:", estruturado.error);
-                  document.getElementById('scribeStatus').innerHTML = `<span style="color:red">${estruturado.error}</span>`;
+                 console.error("[Copiloto] O Rust devolveu um erro de IA:", estruturado.error);
+                  document.getElementById('scribeStatus').textContent = mensagemErro(estruturado.error);
                   return;
               }
 
@@ -319,7 +330,7 @@ async function pararEPreencher() {
       }
   } catch (err) {
       console.error("[Copiloto] Erro Geral no preenchimento:", err);
-      document.getElementById('scribeStatus').innerHTML = `<span style="color:red">Erro Geral: ${err.message}</span>`;
+       document.getElementById('scribeStatus').textContent = mensagemErro(err);
   }
 }
 
@@ -346,9 +357,16 @@ async function handleSend() {
     try {
       // Chama o Rust/Wasm assíncrono para conversar com o LLM passando o contexto
       const resposta = await responder_chat(resumoJson, text);
+
+      // O Rust devolve erros como texto normal (não lança exceção), então detectamos pelo prefixo
+      if (/^Erro na (comunicação com a )?IA/i.test(resposta)) {
+        throw resposta;
+      }
+
       document.getElementById(typingId).innerHTML = resposta.replace(/\n/g, '<br>');
     } catch (err) {
-      document.getElementById(typingId).innerHTML = `<span style="color:red">Erro na IA: ${err.message || err}</span>`;
+      console.error("[Copiloto] Erro na IA:", err);
+      document.getElementById(typingId).textContent = mensagemErro(err);
     }
   } else {
     addMessage("bot", "Sem contexto clínico disponível.");
