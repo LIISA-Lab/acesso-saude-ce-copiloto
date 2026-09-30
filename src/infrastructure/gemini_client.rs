@@ -169,6 +169,25 @@ impl fmt::Display for GeminiError {
 
 impl std::error::Error for GeminiError {}
 
+impl GeminiError {
+    /// Categoria estável usada pela UI para escolher a mensagem ao médico.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::ChaveNaoConfigurada => "config",
+            Self::Rede(_) => "rede",
+            Self::Http { status, .. } => match status {
+                429 | 500 | 502 | 503 | 504 => "indisponivel",
+                400 | 401 | 403 | 404 => "config",
+                _ => "indisponivel",
+            },
+            Self::Bloqueado(_) => "bloqueado",
+            Self::Truncado { .. } => "truncado",
+            Self::SemCandidatos | Self::RespostaVazia => "vazio",
+            Self::Interrompido(_) | Self::FormatoInvalido(_) => "invalido",
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Interpretação da resposta (lógica pura, sem I/O)
 // ---------------------------------------------------------------------------
@@ -477,6 +496,24 @@ mod tests {
                 mensagem: "quota".to_string()
             })
         );
+    }
+
+    #[test]
+    fn kind_agrupa_erros_para_a_ui() {
+        let http = |status| GeminiError::Http {
+            status,
+            mensagem: String::new(),
+        };
+        assert_eq!(GeminiError::ChaveNaoConfigurada.kind(), "config");
+        assert_eq!(GeminiError::Rede("x".into()).kind(), "rede");
+        assert_eq!(http(429).kind(), "indisponivel");
+        assert_eq!(http(503).kind(), "indisponivel");
+        assert_eq!(http(400).kind(), "config");
+        assert_eq!(http(403).kind(), "config");
+        assert_eq!(GeminiError::Bloqueado("SAFETY".into()).kind(), "bloqueado");
+        assert_eq!(GeminiError::Truncado { parcial: String::new() }.kind(), "truncado");
+        assert_eq!(GeminiError::RespostaVazia.kind(), "vazio");
+        assert_eq!(GeminiError::FormatoInvalido("x".into()).kind(), "invalido");
     }
 
     #[test]
