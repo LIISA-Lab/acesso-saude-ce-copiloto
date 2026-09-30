@@ -408,23 +408,17 @@ function limparChat() {
 }
 
 // Reage sempre que o content script grava dados novos no storage
-try {
-  chrome.storage.onChanged.addListener((changes) => {
-    if (!changes.dadosBrutosDaTela) return;
+chrome.storage.onChanged.addListener((changes) => {
+  if (!changes.dadosBrutosDaTela) return;
 
-    const antigo = JSON.parse(changes.dadosBrutosDaTela.oldValue || '{}');
-    const novo = JSON.parse(changes.dadosBrutosDaTela.newValue || '{}');
+  const antigo = JSON.parse(changes.dadosBrutosDaTela.oldValue || '{}');
+  const novo = JSON.parse(changes.dadosBrutosDaTela.newValue || '{}');
 
-    if ((antigo.paciente?.nome !== novo.paciente?.nome) || (antigo.paciente?.idade !== novo.paciente?.idade)) {
-      limparChat();
-    }
-  });
-} catch (e) {
-  console.error("Erro no processar_historico (Rust):", err);
-  // Apaga o resumo anterior para não enviar ao Gemini dados de outro paciente
-  resumoJson = null;
-  resumoDiv.innerHTML = `<p style='color:red;'>Erro na Engine Wasm: ${err.message || err}</p>`;
-}
+  if ((antigo.id_atendimento !== novo.id_atendimento)) {
+    limparChat();
+  }
+});
+
 
 document.addEventListener("DOMContentLoaded", inicializar);
 
