@@ -67,6 +67,8 @@ mod tests {
                 observacoes_adicionais: None,
             }],
             alergias: vec!["Dipirona".to_string()],
+            total_atendimentos: 1,
+            ultimo_diagnostico: Some("A00.9 - Cólera Não Especificada".to_string()),
         }
     }
 

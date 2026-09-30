@@ -72,6 +72,8 @@ mod tests {
                 },
             ],
             alergias: vec!["AAS".to_string()],
+            total_atendimentos: 3,
+            ultimo_diagnostico: Some("Hipertensão".to_string()),
         };
 
         let resumo = Summarizer::gerar_resumo(&historico);
