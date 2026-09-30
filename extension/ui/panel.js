@@ -13,6 +13,19 @@ function mensagemErro(err) {
   return "Não foi possível obter resposta da IA. Tente novamente.";
 }
 
+// Erros do Escriba chegam do Rust como {kind, message}; o kind é estável, o texto não.
+function mensagemErroEscriba(erro) {
+  switch (erro?.kind) {
+    case 'rede': return "Sem conexão com a internet.";
+    case 'config': return "Problema com a configuração da IA (chave ou modelo). Avise o suporte.";
+    case 'bloqueado': return "A IA não pôde processar esta transcrição.";
+    case 'truncado': return "A resposta da IA foi cortada. Tente novamente.";
+    case 'vazio':
+    case 'invalido': return "A IA não retornou um prontuário válido. Tente novamente.";
+    default: return mensagemErro(erro?.message); // indisponivel: 503/429 pelo texto
+  }
+}
+
 async function inicializar() {
   chrome.runtime.connect({ name: 'painel' }); // Conseguir indexar a conexão
 
@@ -197,20 +210,24 @@ async function pararEPreencher() {
         const jsonResultStr = await estruturar_prontuario(textoDaTela);
         console.log("[Copiloto] Resposta DEVOLVIDA pelo Rust/LLM:", jsonResultStr);
 
-        let estruturado;
+        // Envelope do Rust: {ok:true,data:{...}} | {ok:false,error:{kind,message}}
+        let envelope;
         try {
-          estruturado = JSON.parse(jsonResultStr);
+          envelope = JSON.parse(jsonResultStr);
         } catch (parseError) {
-          console.error("[Copiloto] Falha no JSON parse. A IA retornou:", jsonResultStr);
-          document.getElementById('scribeStatus').innerHTML = `<span style="color:red">Erro: IA não retornou JSON válido. Olhe o Console.</span>`;
+          console.error("[Copiloto] Envelope do Wasm não é JSON:", jsonResultStr);
+          document.getElementById('scribeStatus').textContent = "Erro interno: resposta inesperada do motor Wasm. Olhe o Console.";
           return;
         }
 
-        if (estruturado.error) {
-          console.error("[Copiloto] O Rust devolveu um erro de IA:", estruturado.error);
-          document.getElementById('scribeStatus').textContent = mensagemErro(estruturado.error);
+        if (!envelope.ok) {
+          const erro = envelope.error || {};
+          console.error("[Copiloto] O Rust devolveu um erro de IA:", erro.kind, erro.message);
+          document.getElementById('scribeStatus').textContent = mensagemErroEscriba(erro);
           return;
         }
+
+        const estruturado = envelope.data;
 
         // ==========================================
         // BACKUP IMEDIATO: Mostra na tela ANTES de injetar

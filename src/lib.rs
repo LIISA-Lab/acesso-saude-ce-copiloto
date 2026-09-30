@@ -4,6 +4,7 @@ mod services;
 
 use crate::domain::patient::Historico;
 use crate::infrastructure::gemini_client::chamar_gemini;
+use crate::services::escriba::estruturar_prontuario_json;
 use crate::services::sanitizer::Sanitizer;
 use crate::services::summarizer::Summarizer;
 use wasm_bindgen::prelude::*;
@@ -95,43 +96,18 @@ pub async fn responder_chat(contexto_resumo_json: &str, pergunta_medico: &str) -
         // Chamar a API do Gemini
         match chamar_gemini(prompt_contexto, gemini_api_key).await {
             Ok(resposta) => return resposta,
-            Err(e) => return format!("Erro na comunicação com a IA: {:?}", e),
+            Err(e) => return format!("Erro na comunicação com a IA: {}", e),
         }
     }
 
     "Erro ao ler o contexto do paciente. Por favor, recarregue a página.".to_string()
 }
 
-/// Recebe uma transcrição de áudio bruta, envia pro Gemini e retorna um JSON estruturado para preencher o formulário
+/// Recebe uma transcrição de áudio bruta, envia pro Gemini e retorna um envelope JSON (sempre válido):
+/// `{"ok":true,"data":{anamnese,observacoes,hipotese,conduta}}` ou `{"ok":false,"error":{kind,message}}`
 #[wasm_bindgen]
 pub async fn estruturar_prontuario(transcricao_bruta: &str) -> String {
     let gemini_api_key = dotenvy_macro::dotenv!("GEMINI_API_KEY").trim();
 
-    let prompt_contexto = format!(
-        "Você é um Escriba Médico especializado. Sua função é ler a transcrição bruta gerada pelo reconhecimento de voz durante uma teleconsulta e estruturar as informações clínicas.\n\
-         Ignore saudações, conversas paralelas ou erros de reconhecimento.\n\
-         Retorne EXATAMENTE UM JSON VÁLIDO (sem markdown, sem blocos ```json), contendo as seguintes chaves:\n\
-         - \"anamnese\" (queixas do paciente, histórico da doença atual)\n\
-         - \"observacoes\" (sintomas complementares, suspeitas)\n\
-         - \"hipotese\" (diagnóstico ou CID citado)\n\
-         - \"conduta\" (tratamento, remédios receitados, encaminhamentos)\n\
-         Se não houver informações para algum campo, retorne uma string vazia \"\".\n\
-         \n\
-         TRANSCRIÇÃO DA CONSULTA:\n\
-         {}",
-        transcricao_bruta
-    );
-
-    match chamar_gemini(prompt_contexto, gemini_api_key).await {
-        Ok(resposta) => {
-            // Limpa formatação markdown caso o LLM teime em enviar
-            let limpo = resposta
-                .replace("```json", "")
-                .replace("```", "")
-                .trim()
-                .to_string();
-            limpo
-        }
-        Err(e) => format!("{{\"error\": \"Erro na IA: {:?}\"}}", e),
-    }
+    estruturar_prontuario_json(transcricao_bruta, gemini_api_key).await
 }
