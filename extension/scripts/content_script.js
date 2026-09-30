@@ -15,6 +15,7 @@
   let atendimentosGlobais = [];
   let total_atendimentosGlobal = 0;
   let ultimo_diagnosticoGlobal = "Nenhum";
+  let id_atendimentoGloball = null;
 
   // Recupera dados antigos caso a página tenha sido recarregada (F5) direto na tela de vídeo
   chrome.storage.local.get(['dadosBrutosDaTela'], (result) => {
@@ -26,6 +27,7 @@
           atendimentosGlobais = parseado.atendimentos || [];
           total_atendimentosGlobal = parseado.total_atendimentos || 0;
           ultimo_diagnosticoGlobal = parseado.ultimo_diagnostico || "Nenhum";
+          id_atendimentoGloball = parseado.id_atendimento || null;
           console.log("[Copiloto] Histórico restaurado da memória local com sucesso (Sobreviveu ao F5).");
         }
       } catch (e) { }
@@ -41,17 +43,21 @@
 
   // Verifica a URL da página (Como a Vercel pode esconder a URL base no SPA, rodamos independente da rota)
   // Simula a extração de dados da tela. O ideal aqui no futuro é ler o DOM de verdade
-  function extrairDadosDoDOM() {
+  function extrairDadosDoSessionStorage() {
     // 1. Extrair Dados do Paciente (Atualiza apenas se a aba 'Consulta' estiver aberta com os dados)
     try {
       const totalAtendimentos = parseInt(sessionStorage.getItem('n_atendimentos')) || 0;
       const ultimoDiagnostico = sessionStorage.getItem('ultimo_diagnostico') || "Nenhum";
+      const idAtendimento = sessionStorage.getItem('ws_agendamento_id') || null;
 
       if (totalAtendimentos !== total_atendimentosGlobal) {
         total_atendimentosGlobal = totalAtendimentos;
       }
       if (ultimoDiagnostico !== ultimo_diagnosticoGlobal) {
         ultimo_diagnosticoGlobal = ultimoDiagnostico;
+      }
+      if (idAtendimento !== id_atendimentoGloball) {
+        id_atendimentoGloball = idAtendimento;
       }
     } catch (e) {
       console.error("[Copiloto] Erro ao buscar resumo:", e);
@@ -104,6 +110,7 @@
       alergias: [],
       total_atendimentos: total_atendimentosGlobal,
       ultimo_diagnostico: ultimo_diagnosticoGlobal,
+      id_atendimento: id_atendimentoGloball,
     });
   }
   /*
@@ -295,7 +302,7 @@ return JSON.stringify({
       // autoExpandirHistorico();
 
       // 1. Extrai o dado do DOM
-      const dadosBrutos = extrairDadosDoDOM();
+      const dadosBrutos = extrairDadosDoSessionStorage();
 
       // 2. Salva no banco de dados local do Chrome apenas se tivermos dados reais,
       // para não apagar o histórico se o médico der F5 na tela de vídeo onde não tem dados do paciente visualmente.
