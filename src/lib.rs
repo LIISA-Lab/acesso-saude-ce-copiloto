@@ -95,7 +95,7 @@ pub async fn responder_chat(contexto_resumo_json: &str, pergunta_medico: &str) -
         // Chamar a API do Gemini
         match chamar_gemini(prompt_contexto, gemini_api_key).await {
             Ok(resposta) => return resposta,
-            Err(e) => return format!("Erro na comunicação com a IA: {:?}", e),
+            Err(e) => return format!("Erro na comunicação com a IA: {}", e),
         }
     }
 
@@ -132,6 +132,6 @@ pub async fn estruturar_prontuario(transcricao_bruta: &str) -> String {
                 .to_string();
             limpo
         }
-        Err(e) => format!("{{\"error\": \"Erro na IA: {:?}\"}}", e),
+        Err(e) => serde_json::json!({ "error": format!("Erro na IA: {}", e) }).to_string(),
     }
 }
