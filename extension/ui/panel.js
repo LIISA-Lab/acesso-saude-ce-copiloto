@@ -473,12 +473,9 @@ chrome.storage.onChanged.addListener((changes) => {
   const antigo = JSON.parse(changes.dadosBrutosDaTela.oldValue || '{}');
   const novo = JSON.parse(changes.dadosBrutosDaTela.newValue || '{}');
 
-  if ((antigo.id_atendimento !== novo.id_atendimento)) {
-    limparChat();
-  }
-
   if (atendimentoMudou(antigo.id_atendimento, novo.id_atendimento)) {
     resetarEscriba();
+    limparChat();
   }
 });
 
