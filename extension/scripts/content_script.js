@@ -379,13 +379,25 @@ return JSON.stringify({
     }
 
     else if (request.action === "STOP_RECORDING") {
+      // `gravando = false` já faz o onresult ignorar áudio residual. Não se deve
+      // zerar `recognition.onresult` aqui: nada o restaura e a gravação seguinte
+      // ficaria para sempre sem transcrição.
       gravando = false;
       if (recognition) {
-        recognition.onresult = null; // Cega o microfone de enviar dados novos imediatamente
         try { recognition.stop(); } catch (e) { }
         try { recognition.abort(); } catch (e) { } // Força a parada imediata
       }
       sendResponse({ status: "stopped" });
+    }
+
+    // Descarta a gravação em andamento (ex.: o médico trocou de atendimento)
+    else if (request.action === "CANCEL_RECORDING") {
+      gravando = false;
+      transcricaoAcumulada = "";
+      if (recognition) {
+        try { recognition.abort(); } catch (e) { }
+      }
+      sendResponse({ status: "cancelled" });
     }
 
     return true;

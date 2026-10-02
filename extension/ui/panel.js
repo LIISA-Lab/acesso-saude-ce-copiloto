@@ -1,6 +1,15 @@
 import init, { responder_chat, processar_historico, estruturar_prontuario } from '../pkg/acesso_saude_ce_copiloto.js';
+import { criarDetectorDeTroca } from './troca-atendimento.js';
 
 let resumoJson = null;
+
+// Escriba: cada reinício por troca de atendimento incrementa a "geração". Um
+// pararEPreencher que começou antes do reinício compara a sua geração e se
+// descarta, em vez de escrever a transcrição de um atendimento no outro.
+let geracaoEscriba = 0;
+let resetEscribaPendente = Promise.resolve();
+const atendimentoMudou = criarDetectorDeTroca();
+const STATUS_INICIAL_ESCRIBA = document.getElementById('scribeStatus').innerHTML;
 
 
 
@@ -118,6 +127,7 @@ async function getVercelTab() {
 
 async function iniciarEscuta() {
   console.log("[Copiloto] Clique no botão Gravar disparado!");
+  await resetEscribaPendente; // evita que o CANCEL de um reinício recente alcance esta nova gravação
   resetTimer();
   try {
     const btnRecord = document.getElementById('btnRecord');
@@ -165,8 +175,47 @@ function ouvinteTranscricao(request) {
   }
 }
 
+// Descarta a gravação, a transcrição e o resultado do atendimento anterior e
+// devolve o Escriba ao estado inicial. Chamado quando o médico troca de card.
+function resetarEscriba() {
+  geracaoEscriba++;
+
+  if (chrome.runtime.onMessage.hasListener(ouvinteTranscricao)) {
+    chrome.runtime.onMessage.removeListener(ouvinteTranscricao);
+  }
+
+  resetTimer();
+  const btnStop = document.getElementById('btnStop');
+  const btnRecord = document.getElementById('btnRecord');
+  if (btnStop) btnStop.style.display = 'none';
+  if (btnRecord) btnRecord.style.display = 'flex';
+
+  document.getElementById('scribeStatus').innerHTML = STATUS_INICIAL_ESCRIBA;
+
+  const divTranscript = document.getElementById('scribeTranscript');
+  if (divTranscript) {
+    divTranscript.innerText = "";
+    divTranscript.style.display = 'none';
+  }
+
+  const backup = document.getElementById('backupScribe');
+  if (backup) backup.remove();
+
+  // Para o microfone no content script e zera o que ele acumulou
+  resetEscribaPendente = (async () => {
+    try {
+      const tab = await getVercelTab();
+      if (tab) await chrome.tabs.sendMessage(tab.id, { action: "CANCEL_RECORDING" });
+    } catch (e) {
+      console.warn("[Copiloto] Aviso ao cancelar gravação:", e.message || e);
+    }
+  })();
+  return resetEscribaPendente;
+}
+
 async function pararEPreencher() {
   console.log("[Copiloto] Clique no botão PARAR disparado!");
+  const geracao = geracaoEscriba;
 
   const btnStop = document.getElementById('btnStop');
   const btnRecord = document.getElementById('btnRecord');
@@ -194,6 +243,8 @@ async function pararEPreencher() {
         if (e.message.includes("Extension context invalidated")) conexaoAtiva = false;
       });
 
+      if (geracao !== geracaoEscriba) return; // trocou de atendimento: já foi reiniciado
+
       if (!conexaoAtiva) {
         document.getElementById('scribeStatus').innerHTML = `<span style="color:red">Aba desconectada. Dê F5 na página e tente de novo.</span>`;
         return;
@@ -209,6 +260,13 @@ async function pararEPreencher() {
         // Chama a Engine RUST para estruturar o texto em JSON Clínico
         const jsonResultStr = await estruturar_prontuario(textoDaTela);
         console.log("[Copiloto] Resposta DEVOLVIDA pelo Rust/LLM:", jsonResultStr);
+
+        // O médico pode ter trocado de atendimento enquanto a IA respondia: descartar,
+        // para não escrever o prontuário de um paciente no formulário de outro.
+        if (geracao !== geracaoEscriba) {
+          console.warn("[Copiloto] Atendimento mudou durante o processamento; resultado descartado.");
+          return;
+        }
 
         // Envelope do Rust: {ok:true,data:{...}} | {ok:false,error:{kind,message}}
         let envelope;
@@ -347,6 +405,7 @@ async function pararEPreencher() {
     }
   } catch (err) {
     console.error("[Copiloto] Erro Geral no preenchimento:", err);
+    if (geracao !== geracaoEscriba) return;
     document.getElementById('scribeStatus').textContent = mensagemErro(err);
   }
 }
@@ -416,6 +475,10 @@ chrome.storage.onChanged.addListener((changes) => {
 
   if ((antigo.id_atendimento !== novo.id_atendimento)) {
     limparChat();
+  }
+
+  if (atendimentoMudou(antigo.id_atendimento, novo.id_atendimento)) {
+    resetarEscriba();
   }
 });
 
