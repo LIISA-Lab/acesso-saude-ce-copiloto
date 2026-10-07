@@ -80,9 +80,11 @@ async function inicializar() {
           }
         } catch (err) {
           console.error("Erro no processar_historico (Rust):", err);
+          resumoJson = null; 
           resumoDiv.innerHTML = `<p style='color:red;'>Erro na Engine Wasm: ${err.message || err}</p>`;
         }
       } else {
+        resumoJson = null;
         resumoDiv.innerHTML = `
           <p style='color:orange;'>
             Nenhum histórico encontrado.<br>
