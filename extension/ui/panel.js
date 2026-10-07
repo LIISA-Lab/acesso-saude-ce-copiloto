@@ -472,6 +472,12 @@ function limparChat() {
 chrome.storage.onChanged.addListener((changes) => {
   if (!changes.dadosBrutosDaTela) return;
 
+  if (!changes.dadosBrutosDaTela.newValeu) {
+    resetarEscriba();
+    limparChat();
+    return;
+  }
+
   const antigo = JSON.parse(changes.dadosBrutosDaTela.oldValue || '{}');
   const novo = JSON.parse(changes.dadosBrutosDaTela.newValue || '{}');
 
