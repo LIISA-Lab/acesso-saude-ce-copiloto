@@ -12,7 +12,10 @@ function injetarContentScript(tabId) {
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && tab.url && tab.url.includes(site_teleatendimento)) {
     injetarContentScript(tabId);
-    chrome.storage.session.set({ abaTeleatendimento: tabId });
+    chrome.storage.session.set({ 
+      abaTeleatendimento: tabId,
+      urlTeleatendimento: tab.url, 
+    });
   }
 });
 
@@ -23,7 +26,10 @@ chrome.runtime.onInstalled.addListener(() => {
     abas.forEach(aba => {
       if (aba.url && aba.url.includes(site_teleatendimento)) {
         injetarContentScript(aba.id);
-        chrome.storage.session.set({ abaTeleatendimento: aba.id });
+        chrome.storage.session.set({ 
+          abaTeleatendimento: aba.id,
+          urlTeleatendimento: aba.url,
+        });
       }
     });
   });
@@ -35,6 +41,7 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 
   if (tabId === abaTeleatendimento) {
     chrome.storage.local.clear();
+    chrome.storage.session.clear();
   }
 });
 
