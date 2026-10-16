@@ -1,5 +1,6 @@
 import init, { responder_chat, processar_historico, estruturar_prontuario } from '../pkg/acesso_saude_ce_copiloto.js';
 import { criarDetectorDeTroca } from './troca-atendimento.js';
+import { descreverStatusStt } from './stt-status.js';
 
 let resumoJson = null;
 
@@ -172,6 +173,22 @@ function ouvinteTranscricao(request) {
       divTranscript.innerText = request.text;
       divTranscript.scrollTop = divTranscript.scrollHeight;
     }
+  } else if (request.action === "SCRIBE_STATUS") {
+    mostrarStatusStt(request.status, request.motivo);
+  }
+}
+
+// Indicador do modo de transcrição (Local/Nuvem) e aviso de erro bloqueante do microfone.
+function mostrarStatusStt(status, motivo) {
+  const { modo, erro, texto } = descreverStatusStt(status, motivo);
+  const indicador = document.getElementById('scribeModo');
+  if (indicador) {
+    indicador.textContent = modo ? `Transcrição: ${modo}` : "";
+    indicador.style.display = modo ? 'block' : 'none';
+  }
+  if (erro) {
+    const statusEl = document.getElementById('scribeStatus');
+    if (statusEl) statusEl.innerHTML = `<span style="color:red">${texto}</span>`;
   }
 }
 
@@ -191,6 +208,7 @@ function resetarEscriba() {
   if (btnRecord) btnRecord.style.display = 'flex';
 
   document.getElementById('scribeStatus').innerHTML = STATUS_INICIAL_ESCRIBA;
+  mostrarStatusStt('parado');
 
   const divTranscript = document.getElementById('scribeTranscript');
   if (divTranscript) {
@@ -228,7 +246,9 @@ async function pararEPreencher() {
   }
 
   const scribeTransElement = document.getElementById('scribeTranscript');
-  const textoDaTela = scribeTransElement ? scribeTransElement.innerText : "";
+  // Se o content script devolver a transcrição final no STOP, ela vence o texto da tela
+  let textoDaTela = scribeTransElement ? scribeTransElement.innerText : "";
+  mostrarStatusStt('parado');
 
   try {
     const tab = await getVercelTab();
@@ -237,11 +257,14 @@ async function pararEPreencher() {
       console.log("[Copiloto] Enviando STOP_RECORDING para a Vercel...");
 
       let conexaoAtiva = true;
-      await chrome.tabs.sendMessage(tab.id, { action: "STOP_RECORDING" }).catch((e) => {
+      const respostaStop = await chrome.tabs.sendMessage(tab.id, { action: "STOP_RECORDING" }).catch((e) => {
         console.warn("[Copiloto] Aviso no STOP:", e.message);
         // Se o content script morreu (Extension context invalidated), não tentamos enviar o formulário para ele.
         if (e.message.includes("Extension context invalidated")) conexaoAtiva = false;
       });
+      if (typeof respostaStop?.transcript === 'string' && respostaStop.transcript.trim() !== "") {
+        textoDaTela = respostaStop.transcript;
+      }
 
       if (geracao !== geracaoEscriba) return; // trocou de atendimento: já foi reiniciado
 

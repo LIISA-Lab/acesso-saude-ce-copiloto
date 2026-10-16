@@ -121,6 +121,13 @@ header p {
   line-height: 1.4;
 }
 
+.scribe-modo {
+  margin-top: 2px;
+  color: #075dbb;
+  font-size: 10px;
+  font-weight: 600;
+}
+
 .scribe-controls {
   flex-shrink: 0;
 
