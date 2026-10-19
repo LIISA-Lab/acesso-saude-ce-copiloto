@@ -14,6 +14,13 @@
     maxCiclosFalhos: 5,         // S9
     cicloMinimoMs: 500,         // S9: ciclo mais curto que isso, sem resultado, é falho
     esperaStopMs: 1500,         // S15: tempo máximo esperando o resultado final após stop()
+    // Sessões longas: o Chrome corta a sessão (observado em ~14 min) ou a deixa muda, sem onend
+    // nem onerror. Em vez de esperar o corte no meio da fala, o motor renova a sessão por conta própria.
+    rotacaoMs: 10 * 60_000,         // a partir daqui renova na primeira pausa
+    rotacaoForcadaMs: 12 * 60_000,  // renova mesmo sem pausa
+    pausaMs: 2000,                  // silêncio depois do último resultado que conta como pausa
+    surdezMs: 15_000,               // fala detectada sem nenhum resultado: sessão muda
+    vigiaMs: 1000,                  // período da vigilância
   };
 
   function criarMotorStt(opcoes) {
@@ -44,6 +51,9 @@
     let numeroCiclo = 0;
     let fimDoCicloEm = null;   // quando o onend do ciclo anterior chegou
     let startChamadoEm = null; // quando o start() do ciclo corrente foi aceito
+    let ultimoResultadoEm = null; // último onresult do ciclo corrente
+    let falaDetectadaEm = null;   // onspeechstart sem resultado desde então
+    let renovando = false;        // stop() pedido pela renovação preventiva (o onend reinicia)
     const timers = new Set();
 
     function agendarTimer(fn, ms) {
@@ -76,6 +86,51 @@
       try { antigo.abort(); } catch (_) { }
     }
 
+    // ---------- renovação da sessão (sessões longas) ----------
+
+    // Descarta a sessão (que pode estar muda) e abre uma nova. O que ainda era interino
+    // seria perdido pelo abort(), então é guardado antes.
+    function renovarForcado(g, motivo) {
+      if (g !== geracao || !gravando) return;
+      log('renovando a sessão (' + motivo + ') após ' + Math.round((agora() - cicloInicio) / 1000) + ' s');
+      if (interino.trim()) {
+        acumulado += interino.trim() + ' ';
+        interino = '';
+        emitirTexto();
+      }
+      descartarReconhecimento();
+      reco = novoReconhecimento(g);
+      iniciarCiclo(g, 0);
+    }
+
+    // Renovação na pausa: stop() entrega o que falta e o onend reinicia como qualquer outro
+    // ciclo. Se o onend não vier, força.
+    function renovarNaPausa(g) {
+      renovando = true;
+      log('renovando a sessão numa pausa (' + Math.round((agora() - cicloInicio) / 1000) + ' s de sessão)');
+      try { reco.stop(); } catch (_) { }
+      agendarTimer(() => { if (renovando) renovarForcado(g, 'onend não veio após o stop'); }, cfg.esperaStopMs);
+    }
+
+    function vigiar(g) {
+      agendarTimer(() => {
+        if (g !== geracao || !gravando) return;
+        if (cicloAtivo && !renovando) {
+          const t = agora();
+          const idade = t - cicloInicio;
+          const aPausa = interino === '' && t - (ultimoResultadoEm ?? cicloInicio) >= cfg.pausaMs;
+          if (falaDetectadaEm !== null && t - falaDetectadaEm >= cfg.surdezMs) {
+            renovarForcado(g, 'fala detectada sem resultado');
+          } else if (idade >= cfg.rotacaoForcadaMs) {
+            renovarForcado(g, 'limite preventivo');
+          } else if (idade >= cfg.rotacaoMs && aPausa) {
+            renovarNaPausa(g);
+          }
+        }
+        vigiar(g);
+      }, cfg.vigiaMs);
+    }
+
     // ---------- ciclo de reconhecimento ----------
 
     function novoReconhecimento(g) {
@@ -86,6 +141,7 @@
       r.onresult = (ev) => aoResultado(g, ev);
       r.onerror = (ev) => aoErro(g, ev);
       r.onaudiostart = () => aoAudioIniciado(g);
+      r.onspeechstart = () => { if (g === geracao && falaDetectadaEm === null) falaDetectadaEm = agora(); };
       r.onend = () => aoFim(g);
       return r;
     }
@@ -96,6 +152,9 @@
       cicloInicio = agora();
       cicloTeveResultado = false;
       cicloErro = null;
+      ultimoResultadoEm = null;
+      falaDetectadaEm = null;
+      renovando = false;
 
       try {
         reco.start();
@@ -128,6 +187,8 @@
     function aoResultado(g, ev) {
       if (g !== geracao || (!gravando && !parando)) return;
       cicloTeveResultado = true;
+      ultimoResultadoEm = agora();
+      falaDetectadaEm = null;
       falhas = 0;
 
       let parcial = '';
@@ -242,6 +303,7 @@
       gravando = true;
       reco = novoReconhecimento(g);
       iniciarCiclo(g, 0);
+      vigiar(g);
     }
 
     // S15: stop() gracioso; resolve com o texto final + interino pendente.

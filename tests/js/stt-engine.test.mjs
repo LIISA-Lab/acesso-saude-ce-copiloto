@@ -20,7 +20,7 @@ test('onend reinicia no mesmo tick e preserva o texto acumulado (consulta longa)
   await s.iniciar();
   s.falar('primeira parte');
 
-  await fimDeCiclo(s, { ms: 14 * 60_000 + 20_000 }); // limite do serviço na nuvem
+  await fimDeCiclo(s, { ms: 9 * 60_000 }); // sessão longa que o Chrome encerra antes da renovação preventiva
   assert.equal(s.chamadas.start, 2, 'start() chamado dentro do onend, sem timer');
 
   s.falar('segunda parte');
@@ -228,4 +228,87 @@ test('o primeiro áudio da gravação não é contado como lacuna de reinício',
   await s.iniciar();
   s.ultima().onaudiostart?.();
   assert.ok(!s.logs.some((l) => l.includes('microfone voltou')));
+});
+
+// ---------- renovação da sessão em consultas longas ----------
+
+const MIN = 60_000;
+
+test('depois de 10 min renova a sessão na primeira pausa, sem perder texto', async () => {
+  const s = carregar();
+  await s.iniciar();
+  s.falar('primeira parte');
+
+  await s.avancar(9 * MIN);
+  assert.equal(s.chamadas.stop, 0, 'antes do limiar não mexe na sessão');
+
+  await s.avancar(MIN);
+  assert.equal(s.chamadas.stop, 1, 'stop() gracioso na pausa');
+  s.terminar(); // o Chrome entrega o onend e o motor reinicia como num ciclo normal
+  assert.equal(s.chamadas.start, 2);
+
+  s.falar('segunda parte');
+  assert.equal(s.ultimoTexto(), 'primeira parte segunda parte ');
+  assert.ok(!s.statuses().some((m) => m.status === 'erro'));
+});
+
+test('stop() da renovação sem onend: força uma sessão nova', async () => {
+  const s = carregar();
+  await s.iniciar();
+  s.falar('antes');
+  await s.avancar(10 * MIN + 1500);
+  assert.equal(s.instancias.length, 2, 'nova instância do reconhecedor');
+  assert.equal(s.chamadas.start, 2);
+  s.falar('depois');
+  assert.equal(s.ultimoTexto(), 'antes depois ');
+});
+
+test('sem pausa (fala contínua) renova aos 12 min e guarda o interino', async () => {
+  const s = carregar();
+  await s.iniciar();
+  s.falar('ok');
+  s.falarInterino('meia fra');
+
+  await s.avancar(11 * MIN);
+  assert.equal(s.chamadas.stop, 0, 'enquanto há fala em andamento não renova entre 10 e 12 min');
+  await s.avancar(MIN);
+  assert.equal(s.instancias.length, 2);
+  assert.equal(s.ultimoTexto(), 'ok meia fra ', 'o interino não se perde com o abort()');
+  s.falar('seguinte');
+  assert.equal(s.ultimoTexto(), 'ok meia fra seguinte ');
+});
+
+test('fala detectada sem nenhum resultado por 15 s: sessão muda, renova', async () => {
+  const s = carregar();
+  await s.iniciar();
+  s.ultima().onspeechstart?.();
+  await s.avancar(14_000);
+  assert.equal(s.instancias.length, 1);
+  await s.avancar(1000);
+  assert.equal(s.instancias.length, 2);
+  assert.equal(s.chamadas.start, 2);
+});
+
+test('fala detectada com resultado a tempo não renova', async () => {
+  const s = carregar();
+  await s.iniciar();
+  s.ultima().onspeechstart?.();
+  await s.avancar(3000);
+  s.falar('chegou');
+  await s.avancar(60_000);
+  assert.equal(s.instancias.length, 1);
+});
+
+test('depois de STOP ou CANCEL a vigilância para', async () => {
+  for (const comando of ['STOP_RECORDING', 'CANCEL_RECORDING']) {
+    const s = carregar();
+    await s.iniciar();
+    s.falar('x');
+    const parada = s.enviar(comando);
+    s.terminar();
+    await parada;
+    const antes = s.chamadas.start;
+    await s.avancar(30 * MIN);
+    assert.equal(s.chamadas.start, antes, comando);
+  }
 });
