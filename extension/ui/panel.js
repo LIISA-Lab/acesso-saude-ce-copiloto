@@ -178,14 +178,9 @@ function ouvinteTranscricao(request) {
   }
 }
 
-// Indicador do modo de transcrição (Local/Nuvem) e aviso de erro bloqueante do microfone.
+// Aviso de erro bloqueante da transcrição (microfone, permissão, rede).
 function mostrarStatusStt(status, motivo) {
-  const { modo, erro, texto } = descreverStatusStt(status, motivo);
-  const indicador = document.getElementById('scribeModo');
-  if (indicador) {
-    indicador.textContent = modo ? `Transcrição: ${modo}` : "";
-    indicador.style.display = modo ? 'block' : 'none';
-  }
+  const { erro, texto } = descreverStatusStt(status, motivo);
   if (erro) {
     const statusEl = document.getElementById('scribeStatus');
     if (statusEl) statusEl.innerHTML = `<span style="color:red">${texto}</span>`;

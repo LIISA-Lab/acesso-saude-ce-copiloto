@@ -322,7 +322,7 @@ return JSON.stringify({
   // ============================================
   // ESCRIBA AI - Reconhecimento de Voz (Mic do Jitsi)
   // ============================================
-  // A lógica (reinício automático, erros, on-device) vive em stt_engine.js; aqui
+  // A lógica (reinício automático e erros) vive em stt_engine.js; aqui
   // fica só a cola com o painel lateral.
   const ReconhecimentoCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -333,15 +333,9 @@ return JSON.stringify({
   };
 
   const motorStt = window.__copilotoStt.criarMotorStt({
-    Ctor: ReconhecimentoCtor,
     criarReconhecimento: ReconhecimentoCtor ? () => new ReconhecimentoCtor() : null,
     contextoValido: () => {
       try { return !!(chrome.runtime && chrome.runtime.id); } catch (e) { return false; }
-    },
-    // On-device é opt-in até o spike validar pt-BR: chrome.storage.local.set({ sttModo: 'auto' })
-    obterPreferenciaLocal: async () => {
-      const r = await chrome.storage.local.get('sttModo');
-      return !!r && r.sttModo === 'auto';
     },
     aoTexto: (texto) => enviarAoPainel({ action: "UPDATE_TRANSCRIPT", text: texto }),
     aoStatus: ({ status, motivo }) => enviarAoPainel({ action: "SCRIBE_STATUS", status, motivo }),

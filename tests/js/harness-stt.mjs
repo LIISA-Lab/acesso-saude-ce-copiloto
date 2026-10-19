@@ -24,16 +24,12 @@ export function adiada() {
 
 // opcoes:
 //   suportado   (true)   expõe webkitSpeechRecognition
-//   available   undefined | 'available' | ... | (opts) => Promise   (sem valor = API ausente)
-//   install     undefined | (opts) => Promise
-//   preferencia ('nuvem') valor de chrome.storage.local sttModo; 'auto' liga o on-device
 export function carregar(opcoes = {}) {
-  const { suportado = true, available, install, preferencia = 'nuvem' } = opcoes;
+  const { suportado = true } = opcoes;
 
   const enviadas = [];
   const instancias = [];
-  const chamadas = { start: 0, stop: 0, abort: 0, available: 0, install: 0 };
-  const modosDeStart = []; // processLocally no momento de cada start()
+  const chamadas = { start: 0, stop: 0, abort: 0 };
   const config = { falhasDeStart: 0 };
   let ouvinte = null;
   const ouvintesPagina = {};
@@ -51,35 +47,21 @@ export function carregar(opcoes = {}) {
   class DataFalsa extends Date { static now() { return relogio; } }
 
   class FakeRecognition {
-    constructor() { instancias.push(this); this.processLocally = false; }
+    constructor() { instancias.push(this); }
     start() {
       chamadas.start++;
       if (config.falhasDeStart > 0) {
         config.falhasDeStart--;
         throw new Error('InvalidStateError');
       }
-      modosDeStart.push(this.processLocally);
     }
     stop() { chamadas.stop++; }
     abort() { chamadas.abort++; }
   }
-  if (available !== undefined) {
-    FakeRecognition.available = (o) => {
-      chamadas.available++;
-      return typeof available === 'function' ? available(o) : Promise.resolve(available);
-    };
-  }
-  if (install !== undefined) {
-    FakeRecognition.install = (o) => {
-      chamadas.install++;
-      return install(o);
-    };
-  }
-
   const chrome = {
     storage: {
       local: {
-        get: () => Promise.resolve({ sttModo: preferencia }),
+        get: () => Promise.resolve({}),
         set() {},
       },
     },
@@ -144,11 +126,11 @@ export function carregar(opcoes = {}) {
 
   return {
     enviar, assentar, avancar, falar, falarInterino, terminar, errar,
-    enviadas, instancias, chamadas, modosDeStart, config, chrome, contexto, ouvintesPagina,
+    enviadas, instancias, chamadas, config, chrome, contexto, ouvintesPagina,
     ultima, textos, statuses,
     ultimoTexto: () => textos().at(-1),
     ultimoStatus: () => statuses().at(-1),
-    // Comando START + espera a consulta de disponibilidade terminar
+    // Comando START + espera as promessas pendentes assentarem
     iniciar: async () => { const r = await enviar('START_RECORDING'); await assentar(); return r; },
   };
 }

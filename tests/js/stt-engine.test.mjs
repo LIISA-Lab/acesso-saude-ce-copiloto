@@ -2,7 +2,7 @@
 // content_script.js real com SpeechRecognition falso e relógio controlado.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { carregar, adiada } from './harness-stt.mjs';
+import { carregar } from './harness-stt.mjs';
 
 const CICLO = 8000; // um ciclo "normal" de silêncio: bem acima do mínimo de 500 ms
 
@@ -22,7 +22,6 @@ test('onend reinicia no mesmo tick e preserva o texto acumulado (consulta longa)
 
   await fimDeCiclo(s, { ms: 14 * 60_000 + 20_000 }); // limite do serviço na nuvem
   assert.equal(s.chamadas.start, 2, 'start() chamado dentro do onend, sem timer');
-  assert.equal(s.modosDeStart.at(-1), false, 'continua na nuvem');
 
   s.falar('segunda parte');
   assert.equal(s.ultimoTexto(), 'primeira parte segunda parte ');
@@ -51,109 +50,7 @@ test('texto interino não entra no acumulado', async () => {
   assert.equal(s.ultimoTexto(), 'frase final ');
 });
 
-// ---------- modo inicial (S1, S2, S4, S5) ----------
-
-test('padrão: sem sttModo=auto fica na nuvem e nem consulta o on-device', async () => {
-  const s = carregar({ available: 'available', install: async () => true });
-  await s.iniciar();
-  assert.equal(s.chamadas.available, 0);
-  assert.deepEqual([...s.modosDeStart], [false]);
-  assert.equal(s.ultimoStatus().status, 'ouvindo_nuvem');
-});
-
-for (const [disp, localEsperado, installs] of [
-  ['available', true, 0],
-  ['downloadable', false, 1],
-  ['downloading', false, 1],
-  ['unavailable', false, 0],
-]) {
-  test(`disponibilidade "${disp}" → processLocally=${localEsperado}, install ${installs}x`, async () => {
-    const s = carregar({ available: disp, install: () => new Promise(() => { }), preferencia: 'auto' });
-    await s.iniciar();
-    assert.deepEqual([...s.modosDeStart], [localEsperado]);
-    assert.equal(s.chamadas.install, installs);
-    assert.equal(s.ultimoStatus().status, localEsperado ? 'ouvindo_local' : 'ouvindo_nuvem');
-  });
-}
-
-test('install roda no máximo uma vez por página, mesmo com várias gravações', async () => {
-  const s = carregar({ available: 'downloading', install: () => new Promise(() => { }), preferencia: 'auto' });
-  await s.iniciar();
-  s.enviar('CANCEL_RECORDING');
-  await s.iniciar();
-  assert.equal(s.chamadas.install, 1);
-});
-
-test('API de disponibilidade ausente, que lança ou que trava: cai para a nuvem sem exceção', async () => {
-  const ausente = carregar({ preferencia: 'auto' });
-  await ausente.iniciar();
-  assert.deepEqual([...ausente.modosDeStart], [false]);
-
-  const lanca = carregar({ available: () => { throw new Error('boom'); }, preferencia: 'auto' });
-  await lanca.iniciar();
-  assert.deepEqual([...lanca.modosDeStart], [false]);
-
-  const trava = carregar({ available: () => new Promise(() => { }), preferencia: 'auto' });
-  await trava.enviar('START_RECORDING');
-  await trava.assentar();
-  assert.equal(trava.chamadas.start, 0, 'ainda esperando a consulta');
-  await trava.avancar(300);
-  assert.deepEqual([...trava.modosDeStart], [false], 'após o timeout, inicia na nuvem');
-});
-
-// ---------- hot-swap nuvem → local (S5, S6, S7) ----------
-
-test('baixou o modelo: o próximo onend migra para o local sem perder o texto', async () => {
-  const instalacao = adiada();
-  const s = carregar({ available: 'downloadable', install: () => instalacao.promessa, preferencia: 'auto' });
-  await s.iniciar();
-  s.falar('na nuvem');
-  assert.deepEqual([...s.modosDeStart], [false]);
-
-  instalacao.resolver(true);
-  await s.assentar();
-  assert.equal(s.chamadas.start, 1, 'a troca espera o onend: não interrompe a sessão ativa');
-
-  await fimDeCiclo(s);
-  assert.deepEqual([...s.modosDeStart], [false, true]);
-  assert.equal(s.ultimoStatus().status, 'ouvindo_local');
-  s.falar('no local');
-  assert.equal(s.ultimoTexto(), 'na nuvem no local ');
-});
-
-test('install que nunca resolve: a reconsulta periódica de available() promove o local', async () => {
-  let estado = 'downloading';
-  const s = carregar({ available: () => Promise.resolve(estado), install: () => new Promise(() => { }), preferencia: 'auto' });
-  await s.iniciar();
-
-  await s.avancar(5000);
-  await fimDeCiclo(s, { ms: 1 });
-  assert.deepEqual([...s.modosDeStart], [false, false], 'ainda baixando');
-
-  estado = 'available';
-  await s.avancar(5000);
-  await fimDeCiclo(s, { ms: 1 });
-  assert.deepEqual([...s.modosDeStart], [false, false, true]);
-});
-
-// ---------- downgrade local → nuvem (S11) ----------
-
-test('falha do on-device: volta para a nuvem e não tenta o local de novo na página', async () => {
-  const s = carregar({ available: 'available', preferencia: 'auto' });
-  await s.iniciar();
-  assert.deepEqual([...s.modosDeStart], [true]);
-
-  s.errar('language-not-supported');
-  s.terminar(); // sem avançar o relógio: o rebaixamento não conta como ciclo falho
-  assert.deepEqual([...s.modosDeStart], [true, false]);
-  assert.equal(s.ultimoStatus().status, 'ouvindo_nuvem');
-
-  await fimDeCiclo(s);
-  await s.iniciar(); // nova gravação: available continua "available", mas o local está travado
-  assert.equal(s.modosDeStart.at(-1), false);
-});
-
-// ---------- erros bloqueantes (S11, S12) ----------
+// ---------- erros bloqueantes (S12) ----------
 
 for (const [codigo, motivo] of [
   ['not-allowed', 'permissao_negada'],
@@ -230,23 +127,10 @@ test('start() lançando: tenta de novo em 150 ms', async () => {
   assert.equal(s.chamadas.start, 1);
   await s.avancar(1);
   assert.equal(s.chamadas.start, 2);
-  assert.equal(s.ultimoStatus().status, 'ouvindo_nuvem');
+  assert.equal(s.ultimoStatus().status, 'ouvindo');
 });
 
-// ---------- corridas, STOP e CANCEL (S3, S15, S16, S18) ----------
-
-test('CANCEL ou STOP durante a consulta de disponibilidade: não chega a iniciar', async () => {
-  for (const comando of ['CANCEL_RECORDING', 'STOP_RECORDING']) {
-    const consulta = adiada();
-    const s = carregar({ available: () => consulta.promessa, preferencia: 'auto' });
-    await s.enviar('START_RECORDING');
-    await s.assentar();
-    await s.enviar(comando);
-    consulta.resolver('available');
-    await s.assentar();
-    assert.equal(s.chamadas.start, 0, comando);
-  }
-});
+// ---------- STOP e CANCEL (S15, S16, S18) ----------
 
 test('STOP espera o resultado final e devolve o texto + o interino pendente', async () => {
   const s = carregar();
@@ -312,10 +196,10 @@ test('navegador sem reconhecimento de voz: erro nao_suportado, sem exceção', a
   assert.equal(s.ultimoStatus().motivo, 'nao_suportado');
 });
 
-test('START avisa o painel do modo e CANCEL volta para parado', async () => {
+test('START avisa o painel que está ouvindo e CANCEL volta para parado', async () => {
   const s = carregar();
   await s.iniciar();
-  assert.equal(s.ultimoStatus().status, 'ouvindo_nuvem');
+  assert.equal(s.ultimoStatus().status, 'ouvindo');
   await s.enviar('CANCEL_RECORDING');
   assert.equal(s.ultimoStatus().status, 'parado');
 });

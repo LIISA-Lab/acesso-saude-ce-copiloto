@@ -1,6 +1,6 @@
 # Spec: Motor de transcrição contínua com reinício automático e Cloud → On-Device (SODA)
 
-- **Status:** Implementado na branch `feat/stt-engine-restart-on-device` (on-device opt-in até o spike)
+- **Status:** Escopo reduzido na branch `feat/stt-engine-restart-on-device`: **o modo on-device foi removido por ora** (S2, S2a, S4–S6, S11, hot-swap Cloud → Local e o indicador Local/Nuvem do painel, S19 parcial). Permanece o motor de reinício automático, backoff, erros bloqueantes, STOP/CANCEL graciosos (S1, S7–S10, S12–S18). As seções sobre on-device abaixo ficam como referência para uma retomada futura; o status `ouvindo_nuvem` virou `ouvindo`.
 - **Autor:** Edson Moreira
 - **Data:** 2026-10-16
 - **Componentes afetados:** `extension/scripts/content_script.js`, novo `extension/scripts/stt_engine.js`, `extension/manifest.json`, `extension/ui/panel.js`, `tests/js/`
