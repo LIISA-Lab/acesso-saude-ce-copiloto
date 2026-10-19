@@ -40,6 +40,10 @@
     let cicloTeveResultado = false;
     let cicloErro = null;
     let paradaPendente = null; // { promessa, resolver }
+    // Medição da lacuna de reinício (sem conteúdo clínico, só tempos)
+    let numeroCiclo = 0;
+    let fimDoCicloEm = null;   // quando o onend do ciclo anterior chegou
+    let startChamadoEm = null; // quando o start() do ciclo corrente foi aceito
     const timers = new Set();
 
     function agendarTimer(fn, ms) {
@@ -81,6 +85,7 @@
       r.lang = cfg.lang;
       r.onresult = (ev) => aoResultado(g, ev);
       r.onerror = (ev) => aoErro(g, ev);
+      r.onaudiostart = () => aoAudioIniciado(g);
       r.onend = () => aoFim(g);
       return r;
     }
@@ -95,6 +100,8 @@
       try {
         reco.start();
         cicloAtivo = true;
+        numeroCiclo++;
+        startChamadoEm = agora();
         emitirStatus('ouvindo');
       } catch (e) {
         // Normalmente o Chrome ainda encerrando a sessão anterior (InvalidStateError).
@@ -105,6 +112,17 @@
           registrarFalhaEReiniciar(g, 'desconhecido');
         }
       }
+    }
+
+    // O microfone voltou a capturar. Nos reinícios, mede o intervalo sem captura de áudio:
+    // do onend do ciclo anterior até aqui (fala nesse intervalo se perde).
+    function aoAudioIniciado(g) {
+      if (g !== geracao || fimDoCicloEm === null) return;
+      const lacuna = agora() - fimDoCicloEm;
+      const abertura = startChamadoEm === null ? 0 : agora() - startChamadoEm;
+      fimDoCicloEm = null;
+      log('ciclo ' + numeroCiclo + ': microfone voltou ' + lacuna + ' ms após o onend '
+        + '(start() -> áudio: ' + abertura + ' ms)');
     }
 
     function aoResultado(g, ev) {
@@ -157,6 +175,9 @@
       }
 
       const duracao = agora() - cicloInicio;
+      fimDoCicloEm = agora();
+      log('ciclo ' + numeroCiclo + ' terminou após ' + Math.round(duracao / 1000) + ' s'
+        + ' (erro: ' + (cicloErro || 'nenhum') + ', com fala: ' + (cicloTeveResultado ? 'sim' : 'não') + ')');
       const falhou =
         (cicloErro !== null && !TRANSITORIOS.has(cicloErro)) ||
         (cicloErro === null && !cicloTeveResultado && duracao < cfg.cicloMinimoMs);

@@ -28,6 +28,7 @@ export function carregar(opcoes = {}) {
   const { suportado = true } = opcoes;
 
   const enviadas = [];
+  const logs = [];
   const instancias = [];
   const chamadas = { start: 0, stop: 0, abort: 0 };
   const config = { falhasDeStart: 0 };
@@ -73,7 +74,7 @@ export function carregar(opcoes = {}) {
   };
 
   const contexto = {
-    console: { log() {}, warn() {}, error() {} },
+    console: { log: (...a) => logs.push(a.join(' ')), warn() {}, error() {} },
     setTimeout: setTimeoutFalso,
     clearTimeout: clearTimeoutFalso,
     clearInterval,
@@ -126,7 +127,7 @@ export function carregar(opcoes = {}) {
 
   return {
     enviar, assentar, avancar, falar, falarInterino, terminar, errar,
-    enviadas, instancias, chamadas, config, chrome, contexto, ouvintesPagina,
+    enviadas, logs, instancias, chamadas, config, chrome, contexto, ouvintesPagina,
     ultima, textos, statuses,
     ultimoTexto: () => textos().at(-1),
     ultimoStatus: () => statuses().at(-1),

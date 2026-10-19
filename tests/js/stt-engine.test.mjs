@@ -203,3 +203,29 @@ test('START avisa o painel que está ouvindo e CANCEL volta para parado', async 
   await s.enviar('CANCEL_RECORDING');
   assert.equal(s.ultimoStatus().status, 'parado');
 });
+
+// ---------- medição da lacuna de reinício ----------
+
+test('registra a lacuna entre o onend e o microfone voltar, sem conteúdo da fala', async () => {
+  const s = carregar();
+  await s.iniciar();
+  s.falar('texto clínico sigiloso');
+
+  await fimDeCiclo(s, { ms: 60_000 });
+  await s.avancar(320);
+  s.ultima().onaudiostart?.();
+
+  const log = s.logs.find((l) => l.includes('microfone voltou'));
+  assert.ok(log, 'deveria registrar a lacuna');
+  assert.match(log, /320 ms após o onend/);
+  assert.match(log, /start\(\) -> áudio: 320 ms/);
+  assert.ok(s.logs.some((l) => /terminou após 60 s/.test(l)));
+  assert.ok(!s.logs.some((l) => l.includes('sigiloso')), 'o log não traz texto transcrito');
+});
+
+test('o primeiro áudio da gravação não é contado como lacuna de reinício', async () => {
+  const s = carregar();
+  await s.iniciar();
+  s.ultima().onaudiostart?.();
+  assert.ok(!s.logs.some((l) => l.includes('microfone voltou')));
+});
