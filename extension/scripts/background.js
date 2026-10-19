@@ -1,4 +1,6 @@
-const site_teleatendimento = "teleatendimento.vercel.app";
+importScripts('/config.js');
+
+const site_teleatendimento = TELEATENDIMENTO_URL;
 
 // Força a injeção do content script em uma aba específica
 function injetarContentScript(tabId) {

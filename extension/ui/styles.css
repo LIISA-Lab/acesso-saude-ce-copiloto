@@ -46,10 +46,36 @@ header p {
 
 .summary-box {
   background-color: #fff;
-  border-bottom: 1px solid #ccc;
+  border-bottom: 1px solid #e3e8ec;
   padding: 15px;
   font-size: 0.9rem;
   color: #333;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 12px;
+  background: #fff;
+  border-bottom: 1px solid #e3e8ec;
+}
+
+.tab {
+  font-size: 12px;
+  text-align: center;
+  flex: 1;
+  height: 44px;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  font-weight: 600;
+  color: #5b6672;
+  cursor: pointer;
+}
+
+.tab.selected {
+  color: #0a7590;
+  border-bottom-color: #0a86a6;      /* aparece o sublinhado azul-petróleo */
 }
 
 .scribe-box {
