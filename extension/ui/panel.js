@@ -301,7 +301,10 @@ async function pararEPreencher() {
         backupDiv.style.border = "2px solid #28a745";
         backupDiv.innerHTML = `
                 <strong style="color:#28a745">Resumo IA Concluído!</strong><br/>
-                <span style="font-size:0.8rem; color:#666">Se os campos não preencheram sozinhos, copie os textos abaixo:</span><br/><br/>
+                <span style="font-size:0.8rem; color:#666">Se os campos não preencheram sozinhos, copie os textos abaixo:</span><br/>
+                <div style="margin:10px 0; padding:8px 10px; border-radius:6px; background:#fff3cd; border:1px solid #ffecb5; color:#664d03; font-size:0.8rem">
+                  <strong>⚠ Atenção:</strong> a IA pode errar. É necessária a revisão do profissional antes de salvar o prontuário.
+                </div>
                 <strong>Anamnese:</strong> <br/>${estruturado.anamnese || "N/A"}<br/><br/>
                 <strong>Hipótese:</strong> <br/>${estruturado.hipotese || "N/A"}<br/><br/>
                 <strong>CID:</strong> <br/>${(estruturado.cids || []).join('<br/>') || "N/A"}<br/><br/>
