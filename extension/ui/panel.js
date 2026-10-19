@@ -304,6 +304,7 @@ async function pararEPreencher() {
                 <span style="font-size:0.8rem; color:#666">Se os campos não preencheram sozinhos, copie os textos abaixo:</span><br/><br/>
                 <strong>Anamnese:</strong> <br/>${estruturado.anamnese || "N/A"}<br/><br/>
                 <strong>Hipótese:</strong> <br/>${estruturado.hipotese || "N/A"}<br/><br/>
+                <strong>CID:</strong> <br/>${(estruturado.cids || []).join('<br/>') || "N/A"}<br/><br/>
                 <strong>Conduta:</strong> <br/>${estruturado.conduta || "N/A"}<br/><br/>
                 <strong>Observações:</strong> <br/>${estruturado.observacoes || "N/A"}
               `;
@@ -329,8 +330,9 @@ async function pararEPreencher() {
             const esperar = (ms) => new Promise(r => setTimeout(r, ms));
             const normalizar = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
-            // Campo de busca do CID (MUI Autocomplete): só vale escrever se a busca devolver uma
-            // opção correspondente ao texto; do contrário o campo é limpo e a lista fecha.
+            // Campo de busca do CID (MUI Autocomplete múltiplo): digita o termo, espera a busca do
+            // sistema e clica na opção que corresponde ao termo (ou na primeira, já filtrada pela
+            // busca); sem nenhuma opção, o campo é limpo e a lista fecha. O médico revisa o resultado.
             async function preencherAutocomplete(input, texto) {
               const fecharLista = () => {
                 const proto = window.HTMLInputElement.prototype;
@@ -366,7 +368,7 @@ async function pararEPreencher() {
                 await esperar(150);
                 const opcoes = buscarOpcoes();
                 if (opcoes.length > 0) {
-                  opcao = opcoes.find(corresponde) || null;
+                  opcao = opcoes.find(corresponde) || opcoes[0];
                   break;
                 }
                 const semOpcoes = document.querySelector('.MuiAutocomplete-noOptions');
@@ -376,6 +378,7 @@ async function pararEPreencher() {
               if (opcao) {
                 console.log("[Copiloto-MainWorld] CID selecionado:", opcao.innerText);
                 opcao.click();
+                await esperar(300); // deixa o chip entrar e a lista fechar antes do próximo CID
               } else {
                 console.warn("[Copiloto-MainWorld] Nenhum CID correspondente a:", texto, "- fechando a lista.");
                 fecharLista();
@@ -452,12 +455,14 @@ async function pararEPreencher() {
               console.log(`[Copiloto-MainWorld] CAIXA AVALIADA: id="${ta.id || 'vazio'}" | placeholder="${ta.placeholder || 'vazio'}" | contexto="${contextoLimpo}"`);
 
               let valorAInserir = null;
+              let ehCampoHipotese = false;
               if (contextoLimpo.includes("conduta") || contextoLimpo.includes("prescriç") || contextoLimpo.includes("encaminhamento") || contextoLimpo.includes("medicament")) {
                 // Caixa "Conduta" (já preenchida por id/name acima, quando encontrada)
                 valorAInserir = condutaPreenchida ? null : valorConduta;
               } else if (contextoLimpo.includes("suspeita") || (contextoLimpo.includes("hipótese") && contextoLimpo.includes("diagnóstica")) || contextoLimpo.includes("cid")) {
                 // Caixa "Hipótese Diagnóstica"
                 valorAInserir = dados.hipotese;
+                ehCampoHipotese = true;
               } else if (contextoLimpo.includes("observações") && contextoLimpo.includes("clínicas")) {
                 // Caixa "Observações Clínicas"
                 valorAInserir = dados.observacoes;
@@ -466,10 +471,22 @@ async function pararEPreencher() {
                 valorAInserir = dados.anamnese;
               }
 
+              const ehAutocomplete = ta.classList.contains('MuiAutocomplete-input') || !!ta.closest('.MuiAutocomplete-root');
+
+              // Campo de CID: um termo por diagnóstico (lista do modelo), cada um buscado no sistema
+              if (ehAutocomplete && ehCampoHipotese) {
+                const cids = Array.isArray(dados.cids) ? dados.cids.filter(c => String(c).trim() !== '') : [];
+                for (const cid of cids) {
+                  console.log("[Copiloto-MainWorld] Buscando CID:", cid);
+                  await preencherAutocomplete(ta, String(cid).trim());
+                }
+                continue;
+              }
+
               if (valorAInserir && valorAInserir.trim() !== "") {
                 console.log("[Copiloto-MainWorld] Escrevendo:", valorAInserir, "no campo", ta.id || "sem-id");
 
-                if (ta.classList.contains('MuiAutocomplete-input') || ta.closest('.MuiAutocomplete-root')) {
+                if (ehAutocomplete) {
                   await preencherAutocomplete(ta, valorAInserir.trim());
                 } else {
                   escreverValor(ta, valorAInserir);
