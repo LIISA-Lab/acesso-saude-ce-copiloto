@@ -81,9 +81,11 @@ async function inicializar() {
           }
         } catch (err) {
           console.error("Erro no processar_historico (Rust):", err);
+          resumoJson = null;
           resumoDiv.innerHTML = `<p style='color:red;'>Erro na Engine Wasm: ${err.message || err}</p>`;
         }
       } else {
+        resumoJson = null;
         resumoDiv.innerHTML = `
           <p style='color:orange;'>
             Nenhum histórico encontrado.<br>
@@ -488,12 +490,41 @@ function limparChat() {
 chrome.storage.onChanged.addListener((changes) => {
   if (!changes.dadosBrutosDaTela) return;
 
+  if (!changes.dadosBrutosDaTela.newValeu) {
+    resetarEscriba();
+    limparChat();
+    return;
+  }
+
   const antigo = JSON.parse(changes.dadosBrutosDaTela.oldValue || '{}');
   const novo = JSON.parse(changes.dadosBrutosDaTela.newValue || '{}');
 
   if (atendimentoMudou(antigo.id_atendimento, novo.id_atendimento)) {
     resetarEscriba();
     limparChat();
+  }
+});
+
+// Função para mostrar ou ocultar a caixa de escrita
+function mostrarEscriba(visivel) {
+    const box = document.getElementById('scribeBox');
+
+    box.style.display = visivel ? '' : 'none';
+}
+
+// Diz se a URL é a da videochamada, onde o Escriba deve aparecer
+function urlDoEscriba(url) {
+  return url?.includes('teleatendimento.vercel.app/video-conference');
+}
+
+// Mostra ou oculta a caixa de escrita dependendo da URL da aba do teleatendimento
+chrome.storage.session.get('urlTeleatendimento', ({ urlTeleatendimento }) => {
+  mostrarEscriba(urlDoEscriba(urlTeleatendimento));
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area == 'session' && changes.urlTeleatendimento) {
+    mostrarEscriba(urlDoEscriba(changes.urlTeleatendimento.newValue));
   }
 });
 
