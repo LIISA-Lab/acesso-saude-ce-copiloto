@@ -13,7 +13,7 @@ const MAX_OUTPUT_TOKENS: u32 = 8192;
 const SYSTEM_INSTRUCTION: &str = "\
 Você é um Escriba Médico especializado. Você receberá a transcrição bruta, gerada por \
 reconhecimento de voz durante uma teleconsulta, e deve estruturar as informações clínicas \
-em quatro campos.\n\
+em cinco campos.\n\
 \n\
 Regras:\n\
 - Use SOMENTE informações presentes na transcrição. Nunca invente sintomas, diagnósticos, \
@@ -29,14 +29,20 @@ Campos:\n\
 - anamnese: queixas do paciente e história da doença atual.\n\
 - observacoes: sintomas complementares e suspeitas.\n\
 - hipotese: diagnóstico ou CID citado.\n\
+- cids: lista com um item para cada diagnóstico ou hipótese diagnóstica da consulta, para busca \
+no sistema de CID-10. Use o nome do diagnóstico como aparece na CID-10 (por exemplo, \
+\"Infecção aguda das vias aéreas superiores, não especificada\") ou o código, se ele tiver \
+sido dito. Não invente diagnósticos \
+que não foram citados; sem diagnóstico, use uma lista vazia.\n\
 - conduta: tratamento, medicamentos receitados e encaminhamentos.";
 
-/// Resultado estruturado da consulta: sempre as quatro chaves, sempre strings.
+/// Resultado estruturado da consulta: sempre as cinco chaves; `cids` é uma lista, o resto string.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct ProntuarioEstruturado {
     pub anamnese: String,
     pub observacoes: String,
     pub hipotese: String,
+    pub cids: Vec<String>,
     pub conduta: String,
 }
 
@@ -51,6 +57,8 @@ struct ProntuarioBruto {
     #[serde(default)]
     hipotese: Option<String>,
     #[serde(default)]
+    cids: Option<Vec<String>>,
+    #[serde(default)]
     conduta: Option<String>,
 }
 
@@ -60,9 +68,25 @@ impl From<ProntuarioBruto> for ProntuarioEstruturado {
             anamnese: b.anamnese.unwrap_or_default(),
             observacoes: b.observacoes.unwrap_or_default(),
             hipotese: b.hipotese.unwrap_or_default(),
+            cids: limpar_cids(b.cids.unwrap_or_default()),
             conduta: b.conduta.unwrap_or_default(),
         }
     }
+}
+
+/// Remove itens vazios e repetidos (ignorando maiúsculas), preservando a ordem.
+fn limpar_cids(cids: Vec<String>) -> Vec<String> {
+    let mut vistos: Vec<String> = Vec::new();
+    let mut limpos = Vec::new();
+    for cid in cids {
+        let cid = cid.trim().to_string();
+        let chave = cid.to_lowercase();
+        if !cid.is_empty() && !vistos.contains(&chave) {
+            vistos.push(chave);
+            limpos.push(cid);
+        }
+    }
+    limpos
 }
 
 /// Erro do Escriba, já no formato que a UI consome (`kind` estável + mensagem).
@@ -98,12 +122,17 @@ fn schema_prontuario() -> Value {
                 "type": "string",
                 "description": "Diagnóstico ou CID citado."
             },
+            "cids": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Um item por diagnóstico citado, como nome em termos médicos padrão (ou código, se dito), para busca no CID-10."
+            },
             "conduta": {
                 "type": "string",
                 "description": "Tratamento, medicamentos receitados e encaminhamentos."
             }
         },
-        "required": ["anamnese", "observacoes", "hipotese", "conduta"]
+        "required": ["anamnese", "observacoes", "hipotese", "cids", "conduta"]
     })
 }
 
@@ -145,7 +174,7 @@ pub fn parse_prontuario(texto: &str) -> Result<ProntuarioEstruturado, ErroEscrib
 /// Serializa o resultado no envelope consumido pelo painel. Usa sempre o
 /// serializador (nunca `format!`), então qualquer texto é escapado corretamente.
 ///
-/// - `{"ok":true,"data":{"anamnese":"...","observacoes":"...","hipotese":"...","conduta":"..."}}`
+/// - `{"ok":true,"data":{"anamnese":"...","observacoes":"...","hipotese":"...","cids":["..."],"conduta":"..."}}`
 /// - `{"ok":false,"error":{"kind":"...","message":"..."}}`
 pub fn envelope(resultado: &Result<ProntuarioEstruturado, ErroEscriba>) -> String {
     match resultado {
@@ -193,10 +222,21 @@ mod tests {
     }
 
     fn ok(anamnese: &str, obs: &str, hip: &str, cond: &str) -> ProntuarioEstruturado {
+        ok_cids(anamnese, obs, hip, &[], cond)
+    }
+
+    fn ok_cids(
+        anamnese: &str,
+        obs: &str,
+        hip: &str,
+        cids: &[&str],
+        cond: &str,
+    ) -> ProntuarioEstruturado {
         ProntuarioEstruturado {
             anamnese: anamnese.into(),
             observacoes: obs.into(),
             hipotese: hip.into(),
+            cids: cids.iter().map(|c| c.to_string()).collect(),
             conduta: cond.into(),
         }
     }
@@ -209,6 +249,27 @@ mod tests {
             parse_prontuario(texto).unwrap(),
             ok("dor", "febre", "J00", "repouso")
         );
+    }
+
+    #[test]
+    fn parse_cids_como_lista_descarta_vazios_e_repetidos() {
+        let texto = r#"{"hipotese":"hipertensão e diabetes","cids":[" hipertensão arterial ","","Diabetes mellitus","HIPERTENSÃO ARTERIAL"]}"#;
+        assert_eq!(
+            parse_prontuario(texto).unwrap().cids,
+            vec!["hipertensão arterial", "Diabetes mellitus"]
+        );
+    }
+
+    #[test]
+    fn parse_cids_ausente_ou_null_vira_lista_vazia() {
+        assert!(parse_prontuario(r#"{"anamnese":"dor"}"#).unwrap().cids.is_empty());
+        assert!(parse_prontuario(r#"{"cids":null}"#).unwrap().cids.is_empty());
+    }
+
+    #[test]
+    fn parse_cids_como_string_e_invalido() {
+        let erro = parse_prontuario(r#"{"cids":"J00"}"#).unwrap_err();
+        assert_eq!(erro.kind, "invalido");
     }
 
     #[test]
@@ -248,13 +309,14 @@ mod tests {
     }
 
     #[test]
-    fn envelope_ok_tem_as_quatro_chaves() {
-        let json = envelope(&Ok(ok("a", "b", "c", "d")));
+    fn envelope_ok_tem_as_cinco_chaves() {
+        let json = envelope(&Ok(ok_cids("a", "b", "c", &["x", "y"], "d")));
         let v: Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["ok"], true);
         assert_eq!(v["data"]["anamnese"], "a");
         assert_eq!(v["data"]["observacoes"], "b");
         assert_eq!(v["data"]["hipotese"], "c");
+        assert_eq!(v["data"]["cids"], json!(["x", "y"]));
         assert_eq!(v["data"]["conduta"], "d");
     }
 
@@ -318,11 +380,13 @@ mod tests {
         assert_eq!(schema["type"], "object");
         assert_eq!(
             schema["required"],
-            json!(["anamnese", "observacoes", "hipotese", "conduta"])
+            json!(["anamnese", "observacoes", "hipotese", "cids", "conduta"])
         );
         for campo in ["anamnese", "observacoes", "hipotese", "conduta"] {
             assert_eq!(schema["properties"][campo]["type"], "string");
         }
+        assert_eq!(schema["properties"]["cids"]["type"], "array");
+        assert_eq!(schema["properties"]["cids"]["items"]["type"], "string");
     }
 
     #[test]
