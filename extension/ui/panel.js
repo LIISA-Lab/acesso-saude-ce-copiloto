@@ -325,11 +325,109 @@ async function pararEPreencher() {
         await chrome.scripting.executeScript({
           target: { tabId: tab.id, allFrames: true },
           world: "MAIN",
-          func: function (dados) {
+          func: async function (dados) {
+            const esperar = (ms) => new Promise(r => setTimeout(r, ms));
+            const normalizar = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+
+            // Campo de busca do CID (MUI Autocomplete): só vale escrever se a busca devolver uma
+            // opção correspondente ao texto; do contrário o campo é limpo e a lista fecha.
+            async function preencherAutocomplete(input, texto) {
+              const fecharLista = () => {
+                const proto = window.HTMLInputElement.prototype;
+                const descriptor = Object.getOwnPropertyDescriptor(proto, "value");
+                if (descriptor && descriptor.set) descriptor.set.call(input, ''); else input.value = '';
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape', code: 'Escape' }));
+                input.blur();
+              };
+
+              // Digita para disparar a busca, mas sem blur: o blur fecharia a lista antes das opções chegarem
+              input.focus();
+              const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value");
+              if (descriptor && descriptor.set) descriptor.set.call(input, texto); else input.value = texto;
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+
+              const listaId = input.getAttribute('aria-controls');
+              const buscarOpcoes = () => {
+                const lista = (listaId && document.getElementById(listaId)) || document.querySelector('[role="listbox"]');
+                return lista ? Array.from(lista.querySelectorAll('[role="option"]')) : [];
+              };
+
+              const alvo = normalizar(texto);
+              const codigos = (String(texto).match(/[A-Z]\d{2}(?:\.\d+)?/gi) || []).map(normalizar);
+              const corresponde = (op) => {
+                const t = normalizar(op.innerText || op.textContent);
+                return t.includes(alvo) || codigos.some(c => t.includes(c));
+              };
+
+              const inicio = Date.now();
+              let opcao = null;
+              while (Date.now() - inicio < 4000) {
+                await esperar(150);
+                const opcoes = buscarOpcoes();
+                if (opcoes.length > 0) {
+                  opcao = opcoes.find(corresponde) || null;
+                  break;
+                }
+                const semOpcoes = document.querySelector('.MuiAutocomplete-noOptions');
+                if (semOpcoes && Date.now() - inicio >= 1500) break; // dá tempo ao debounce da busca
+              }
+
+              if (opcao) {
+                console.log("[Copiloto-MainWorld] CID selecionado:", opcao.innerText);
+                opcao.click();
+              } else {
+                console.warn("[Copiloto-MainWorld] Nenhum CID correspondente a:", texto, "- fechando a lista.");
+                fecharLista();
+              }
+            }
+
+            // Escreve no campo disparando os eventos que o React/MUI do frontend escuta
+            function escreverValor(el, valor) {
+              el.focus();
+              const proto = el.tagName.toLowerCase() === 'textarea'
+                ? window.HTMLTextAreaElement.prototype
+                : window.HTMLInputElement.prototype;
+              const descriptor = Object.getOwnPropertyDescriptor(proto, "value");
+
+              if (descriptor && descriptor.set) {
+                descriptor.set.call(el, valor);
+              } else {
+                el.value = valor;
+              }
+
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+              el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, cancelable: true, key: 'a' }));
+              el.blur();
+            }
+
+            // A conduta fica num aninhamento do frontend que a heurística abaixo não alcança:
+            // buscamos direto pelo id/name do campo. Aceita string, array ou objeto vindo do LLM.
+            let condutaPreenchida = false;
+            const condutaBruta = dados.conduta;
+            const valorConduta = !condutaBruta ? '' :
+              typeof condutaBruta === 'string' ? condutaBruta.trim() :
+              Array.isArray(condutaBruta)
+                ? condutaBruta.map(i => (typeof i === 'object' ? JSON.stringify(i) : String(i))).join('\n').trim()
+                : JSON.stringify(condutaBruta, null, 2).trim();
+
+            if (valorConduta) {
+              const campoConduta = document.getElementById('prontuario-conduct')
+                || document.querySelector('textarea[name="conduct"]');
+              if (campoConduta) {
+                console.log("[Copiloto-MainWorld] Escrevendo conduta por id/name em", campoConduta.id || campoConduta.name);
+                escreverValor(campoConduta, valorConduta);
+                condutaPreenchida = true;
+              } else {
+                console.warn("[Copiloto-MainWorld] Campo da conduta não encontrado por id/name; usando heurística.");
+              }
+            }
+
             const textareas = Array.from(document.querySelectorAll('textarea, input[type="text"]'));
 
-            textareas.forEach(ta => {
-              if (ta.style.visibility === 'hidden') return;
+            for (const ta of textareas) {
+              if (ta.style.visibility === 'hidden') continue;
 
               let contextoOriginal = `${ta.placeholder || ""} ${ta.name || ""} ${ta.id || ""} ${ta.className || ""}`;
               let textoAoSedor = "";
@@ -355,8 +453,8 @@ async function pararEPreencher() {
 
               let valorAInserir = null;
               if (contextoLimpo.includes("conduta") || contextoLimpo.includes("prescriç") || contextoLimpo.includes("encaminhamento") || contextoLimpo.includes("medicament")) {
-                // Caixa "Conduta" (Colocada no topo da prioridade)
-                valorAInserir = dados.conduta;
+                // Caixa "Conduta" (já preenchida por id/name acima, quando encontrada)
+                valorAInserir = condutaPreenchida ? null : valorConduta;
               } else if (contextoLimpo.includes("suspeita") || (contextoLimpo.includes("hipótese") && contextoLimpo.includes("diagnóstica")) || contextoLimpo.includes("cid")) {
                 // Caixa "Hipótese Diagnóstica"
                 valorAInserir = dados.hipotese;
@@ -371,23 +469,13 @@ async function pararEPreencher() {
               if (valorAInserir && valorAInserir.trim() !== "") {
                 console.log("[Copiloto-MainWorld] Escrevendo:", valorAInserir, "no campo", ta.id || "sem-id");
 
-                ta.focus();
-                const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")
-                  || Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value");
-
-                if (nativeInputValueSetter) {
-                  nativeInputValueSetter.set.call(ta, valorAInserir);
+                if (ta.classList.contains('MuiAutocomplete-input') || ta.closest('.MuiAutocomplete-root')) {
+                  await preencherAutocomplete(ta, valorAInserir.trim());
                 } else {
-                  ta.value = valorAInserir;
+                  escreverValor(ta, valorAInserir);
                 }
-
-                ta.dispatchEvent(new Event('input', { bubbles: true }));
-                ta.dispatchEvent(new Event('change', { bubbles: true }));
-                ta.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, cancelable: true, key: 'a' }));
-
-                ta.blur();
               }
-            });
+            }
           },
           args: [estruturado]
         }).then(() => {
