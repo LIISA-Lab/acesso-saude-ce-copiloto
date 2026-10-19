@@ -331,8 +331,11 @@ async function pararEPreencher() {
             const normalizar = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
             // Campo de busca do CID (MUI Autocomplete múltiplo): digita o termo, espera a busca do
-            // sistema e clica na opção que corresponde ao termo (ou na primeira, já filtrada pela
-            // busca); sem nenhuma opção, o campo é limpo e a lista fecha. O médico revisa o resultado.
+            // sistema e clica na opção que corresponde ao termo. Sem correspondência não clica em
+            // nada (nunca cai na primeira opção) e o campo é limpo. Devolve se algum CID foi marcado.
+            const PALAVRAS_VAZIAS = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'a', 'o', 'as', 'os', 'em', 'na', 'no', 'com', 'por', 'para', 'ou']);
+            const palavras = (s) => normalizar(s).split(/[^a-z0-9.]+/).filter(p => p && !PALAVRAS_VAZIAS.has(p));
+
             async function preencherAutocomplete(input, texto) {
               const fecharLista = () => {
                 const proto = window.HTMLInputElement.prototype;
@@ -355,34 +358,61 @@ async function pararEPreencher() {
                 return lista ? Array.from(lista.querySelectorAll('[role="option"]')) : [];
               };
 
-              const alvo = normalizar(texto);
               const codigos = (String(texto).match(/[A-Z]\d{2}(?:\.\d+)?/gi) || []).map(normalizar);
-              const corresponde = (op) => {
-                const t = normalizar(op.innerText || op.textContent);
-                return t.includes(alvo) || codigos.some(c => t.includes(c));
+              const palavrasTermo = palavras(texto);
+
+              // Melhor opção: código citado, ou a que cobre mais palavras do termo (mínimo 75%);
+              // no empate, a mais curta (a menos específica além do que foi dito).
+              const melhorOpcao = (opcoes) => {
+                let melhor = null;
+                let melhorNota = 0;
+                let melhorTamanho = Infinity;
+                for (const op of opcoes) {
+                  const textoOp = normalizar(op.innerText || op.textContent);
+                  if (codigos.some(c => textoOp.includes(c))) return op;
+                  const palavrasOp = new Set(palavras(textoOp));
+                  const nota = palavrasTermo.length
+                    ? palavrasTermo.filter(p => palavrasOp.has(p)).length / palavrasTermo.length
+                    : 0;
+                  if (nota < 0.75) continue;
+                  if (nota > melhorNota || (nota === melhorNota && palavrasOp.size < melhorTamanho)) {
+                    melhor = op;
+                    melhorNota = nota;
+                    melhorTamanho = palavrasOp.size;
+                  }
+                }
+                return melhor;
               };
 
+              // A lista padrão (sem filtro) também aparece antes da busca responder, então não basta
+              // ela existir: só vale a opção que corresponde ao termo; sem correspondência, espera
+              // a lista parar de mudar antes de desistir.
               const inicio = Date.now();
               let opcao = null;
-              while (Date.now() - inicio < 4000) {
+              let assinatura = '';
+              let mudouEm = inicio;
+              while (Date.now() - inicio < 5000) {
                 await esperar(150);
                 const opcoes = buscarOpcoes();
-                if (opcoes.length > 0) {
-                  opcao = opcoes.find(corresponde) || opcoes[0];
-                  break;
-                }
+                opcao = melhorOpcao(opcoes);
+                if (opcao) break;
+
+                const atual = opcoes.map(o => o.textContent).join('|');
+                if (atual !== assinatura) { assinatura = atual; mudouEm = Date.now(); }
+                const estavel = Date.now() - mudouEm >= 1500;
                 const semOpcoes = document.querySelector('.MuiAutocomplete-noOptions');
-                if (semOpcoes && Date.now() - inicio >= 1500) break; // dá tempo ao debounce da busca
+                if (estavel || (semOpcoes && Date.now() - inicio >= 1500)) break; // dá tempo ao debounce da busca
               }
 
               if (opcao) {
-                console.log("[Copiloto-MainWorld] CID selecionado:", opcao.innerText);
+                console.log("[Copiloto-MainWorld] CID selecionado:", opcao.innerText, "<-", texto);
                 opcao.click();
                 await esperar(300); // deixa o chip entrar e a lista fechar antes do próximo CID
-              } else {
-                console.warn("[Copiloto-MainWorld] Nenhum CID correspondente a:", texto, "- fechando a lista.");
-                fecharLista();
+                return true;
               }
+              console.warn("[Copiloto-MainWorld] Nenhum CID correspondente a:", texto, "- fechando a lista.");
+              fecharLista();
+              return false;
             }
 
             // Escreve no campo disparando os eventos que o React/MUI do frontend escuta
@@ -408,6 +438,8 @@ async function pararEPreencher() {
             // A conduta fica num aninhamento do frontend que a heurística abaixo não alcança:
             // buscamos direto pelo id/name do campo. Aceita string, array ou objeto vindo do LLM.
             let condutaPreenchida = false;
+            const semCid = [];
+            let campoCidEncontrado = false;
             const condutaBruta = dados.conduta;
             const valorConduta = !condutaBruta ? '' :
               typeof condutaBruta === 'string' ? condutaBruta.trim() :
@@ -476,9 +508,10 @@ async function pararEPreencher() {
               // Campo de CID: um termo por diagnóstico (lista do modelo), cada um buscado no sistema
               if (ehAutocomplete && ehCampoHipotese) {
                 const cids = Array.isArray(dados.cids) ? dados.cids.filter(c => String(c).trim() !== '') : [];
+                campoCidEncontrado = true;
                 for (const cid of cids) {
                   console.log("[Copiloto-MainWorld] Buscando CID:", cid);
-                  await preencherAutocomplete(ta, String(cid).trim());
+                  if (!await preencherAutocomplete(ta, String(cid).trim())) semCid.push(String(cid).trim());
                 }
                 continue;
               }
@@ -493,10 +526,25 @@ async function pararEPreencher() {
                 }
               }
             }
+
+            return { semCid, campoCidEncontrado };
           },
           args: [estruturado]
-        }).then(() => {
+        }).then((resultados) => {
           console.log("[Copiloto] executeScript finalizado com sucesso!");
+
+          // Avisa quais CIDs a IA sugeriu mas não foram marcados no formulário
+          const cids = estruturado.cids || [];
+          const frames = (resultados || []).map(r => r && r.result).filter(Boolean);
+          const campoEncontrado = frames.some(r => r.campoCidEncontrado);
+          const semCid = !cids.length ? [] : campoEncontrado ? [...new Set(frames.flatMap(r => r.semCid))] : cids;
+          if (semCid.length) {
+            const aviso = document.createElement('div');
+            aviso.style.cssText = "margin-top:8px; padding:6px 8px; border-radius:6px; background:#fff3cd; color:#664d03; font-size:0.8rem";
+            aviso.innerHTML = `<strong>CID não marcado automaticamente</strong> (busque manualmente):<br/>${semCid.join('<br/>')}`;
+            const backup = document.getElementById('backupScribe');
+            if (backup) backup.appendChild(aviso);
+          }
         }).catch((e) => {
           console.error("[Copiloto] ERRO CRÍTICO no executeScript:", e);
         });

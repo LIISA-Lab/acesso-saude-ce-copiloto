@@ -30,8 +30,9 @@ Campos:\n\
 - observacoes: sintomas complementares e suspeitas.\n\
 - hipotese: diagnóstico ou CID citado.\n\
 - cids: lista com um item para cada diagnóstico ou hipótese diagnóstica da consulta, para busca \
-no sistema de CID-10. Use o nome do diagnóstico em termos médicos padrão (por exemplo, \
-\"hipertensão arterial essencial\") ou o código, se ele tiver sido dito. Não invente diagnósticos \
+no sistema de CID-10. Use o nome do diagnóstico como aparece na CID-10 (por exemplo, \
+\"Infecção aguda das vias aéreas superiores, não especificada\") ou o código, se ele tiver \
+sido dito. Não invente diagnósticos \
 que não foram citados; sem diagnóstico, use uma lista vazia.\n\
 - conduta: tratamento, medicamentos receitados e encaminhamentos.";
 
