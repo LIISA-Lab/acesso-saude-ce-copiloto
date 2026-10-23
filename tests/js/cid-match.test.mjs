@@ -83,3 +83,19 @@ test('entradas vazias ou só com palavras vazias devolvem -1', () => {
   assert.equal(escolher(ENXAQUECA, 'de da', 'de da'), -1);
   assert.equal(escolher([], 'Enxaqueca', 'Enxaqueca'), -1);
 });
+
+test('diagnóstico genérico não vira subtipo: "Pneumonia" prefere a variante não especificada', () => {
+  const pneumonia = [
+    'J15 - Pneumonia bacteriana não classificada em outra parte',
+    'J18 - Pneumonia por microorganismo não especificado',
+    'J18.9 - Pneumonia não especificada',
+  ];
+  // com a opção mais genérica disponível, é ela
+  assert.equal(pneumonia[escolher(pneumonia, 'Pneumonia', 'Pneumonia')], 'J18.9 - Pneumonia não especificada');
+  // sem ela, a que tem menos palavras a mais, e nunca a "bacteriana"
+  assert.equal(pneumonia[escolher(pneumonia.slice(0, 2), 'Pneumonia', 'Pneumonia')], 'J18 - Pneumonia por microorganismo não especificado');
+  // e se o diagnóstico já diz "não especificada", o resultado é o mesmo
+  assert.equal(pneumonia[escolher(pneumonia, 'Pneumonia', 'Pneumonia, não especificada')], 'J18.9 - Pneumonia não especificada');
+  // quem diz "bacteriana" continua recebendo a bacteriana
+  assert.equal(pneumonia[escolher(pneumonia, 'Pneumonia', 'Pneumonia bacteriana')], 'J15 - Pneumonia bacteriana não classificada em outra parte');
+});

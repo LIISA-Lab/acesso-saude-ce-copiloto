@@ -113,11 +113,13 @@
     return melhor;
   }
 
-  // Menor é melhor: mais cobertura, mesmo "não especificado", menos palavras a mais, mais parecido
+  // Menor é melhor: mais cobertura, menos palavras a mais, mesmo "não especificado", mais parecido.
+  // As palavras a mais vêm antes do marcador: para um diagnóstico genérico ("Pneumonia") não se
+  // escolhe um subtipo ("... bacteriana ...") só porque ele não diz "não especificado".
   function compararNotas(a, b) {
     if (a.cobertura !== b.cobertura) return b.cobertura - a.cobertura;
-    if (a.mesmoMarcador !== b.mesmoMarcador) return a.mesmoMarcador ? -1 : 1;
     if (a.extras !== b.extras) return a.extras - b.extras;
+    if (a.mesmoMarcador !== b.mesmoMarcador) return a.mesmoMarcador ? -1 : 1;
     return b.similaridade - a.similaridade;
   }
 
