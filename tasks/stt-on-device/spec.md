@@ -141,7 +141,7 @@ Prefixo `S` para não colidir com a numeração de `scribe-reliability`.
 
 - **S15:** QUANDO `STOP_RECORDING` for recebido, O SISTEMA DEVE chamar `stop()` (não `abort()`), continuar aceitando resultados até `onend` ou até 1500 ms, e só então responder `sendResponse({status:"stopped", transcript})` com acumulado + interino pendente (alinhado com R24 de `scribe-reliability`). Após isso, resultados são ignorados.
 - **S16:** `CANCEL_RECORDING` DEVE manter o comportamento atual: `abort()` imediato, acumulado zerado, geração invalidada, nenhum resultado residual aceito.
-- **S17:** Apenas resultados `isFinal` DEVEM ser acrescentados ao acumulado (com `trim()` + espaço); o interino é enviado ao painel mas nunca persistido. O acumulado NÃO DEVE ser alterado por reinícios, trocas de modo ou erros.
+- **S17:** Resultados `isFinal` DEVEM ser acrescentados ao acumulado (com `trim()` + espaço); o interino é enviado ao painel e não entra no acumulado enquanto a sessão está viva. **Exceção:** QUANDO o navegador encerrar a sessão (`onend` sem STOP/CANCEL) com texto ainda interino, esse texto DEVE ser acrescentado ao acumulado antes do reinício, porque não será finalizado numa sessão futura e se perderia (o tamanho em caracteres, nunca o texto, vai para o log). Fora isso, reinícios e erros NÃO DEVEM alterar o acumulado.
 - **S18:** Resultados de uma geração antiga (handlers de uma sessão anterior) DEVEM ser descartados.
 
 ### 7.5 Painel

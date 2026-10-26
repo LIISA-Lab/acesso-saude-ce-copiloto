@@ -235,6 +235,15 @@
         return encerrarSessao();
       }
 
+      // O Chrome encerrou a sessão (não foi um STOP): o que ainda era interino não será
+      // finalizado numa sessão futura e se perderia. Guarda no texto acumulado.
+      if (interino.trim()) {
+        log('sessão encerrada com ' + interino.trim().length + ' caracteres ainda interinos; guardados no texto');
+        acumulado += interino.trim() + ' ';
+        interino = '';
+        emitirTexto();
+      }
+
       const duracao = agora() - cicloInicio;
       fimDoCicloEm = agora();
       log('ciclo ' + numeroCiclo + ' terminou após ' + Math.round(duracao / 1000) + ' s'

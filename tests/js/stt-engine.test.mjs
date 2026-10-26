@@ -40,14 +40,36 @@ test('silêncio longo: 20 ciclos de no-speech reiniciam sem erro e sem perder te
   assert.equal(s.ultimoTexto(), 'antes da pausa depois da pausa ');
 });
 
-test('texto interino não entra no acumulado', async () => {
+test('texto interino só entra no acumulado quando a sessão é encerrada pelo navegador', async () => {
   const s = carregar();
   await s.iniciar();
   s.falarInterino('palavra solta');
-  assert.equal(s.ultimoTexto(), 'palavra solta');
-  await fimDeCiclo(s);
+  assert.equal(s.ultimoTexto(), 'palavra solta', 'enquanto a sessão vive, o interino só é exibido');
+
+  await fimDeCiclo(s); // o Chrome encerra a sessão com a frase ainda interina
+  assert.equal(s.ultimoTexto(), 'palavra solta ', 'a frase não some no reinício');
   s.falar('frase final');
-  assert.equal(s.ultimoTexto(), 'frase final ');
+  assert.equal(s.ultimoTexto(), 'palavra solta frase final ');
+});
+
+test('o interino guardado no reinício é registrado no log só pelo tamanho, sem o texto', async () => {
+  const s = carregar();
+  await s.iniciar();
+  s.falarInterino('conteúdo clínico sigiloso');
+  await fimDeCiclo(s);
+  const log = s.logs.find((l) => l.includes('ainda interinos'));
+  assert.ok(log, 'deveria registrar');
+  assert.match(log, /25 caracteres/);
+  assert.ok(!s.logs.some((l) => l.includes('sigiloso')));
+});
+
+test('sem interino pendente o reinício não mexe no texto nem registra', async () => {
+  const s = carregar();
+  await s.iniciar();
+  s.falar('frase completa');
+  await fimDeCiclo(s);
+  assert.equal(s.ultimoTexto(), 'frase completa ');
+  assert.ok(!s.logs.some((l) => l.includes('ainda interinos')));
 });
 
 // ---------- erros bloqueantes (S12) ----------
