@@ -26,11 +26,6 @@
       <p>Carregando resumo clínico...</p>
     </div>
 
-    <div id="tabs" class="tabs">
-      <button id="btn-chat" class="tab selected">🗩 Chat</button>
-      <button id="btn-escriba" class="tab">✦ Escriba AI</button>
-    </div>
-
     <div class="scribe-box" id="scribeBox">
 
       <div class="scribe-content">
@@ -80,15 +75,13 @@
       <!-- Mensagens vão aqui -->
     </div>
 
-    <div class="input-area" id="inputArea">
+    <div class="input-area">
       <input type="text" id="chatInput" placeholder="Pergunte sobre o histórico...">
       <button id="sendBtn">Enviar</button>
     </div>
   </div>
 
   <!-- O JS precisa importar o módulo wasm como ES module -->
-  <script src="/config.js"></script>
-  <script src="alternar-abas.js"></script>
   <script type="module" src="panel.js"></script>
 </body>
 
