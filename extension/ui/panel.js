@@ -167,6 +167,9 @@ async function iniciarEscuta() {
   }
 }
 
+// Texto de um CID sugerido: { busca, nome } (ou string solta)
+const nomeDoCid = (c) => typeof c === 'string' ? c : ((c && (c.nome || c.busca)) || '');
+
 function ouvinteTranscricao(request) {
   if (request.action === "UPDATE_TRANSCRIPT") {
     const divTranscript = document.getElementById('scribeTranscript');
@@ -301,9 +304,13 @@ async function pararEPreencher() {
         backupDiv.style.border = "2px solid #28a745";
         backupDiv.innerHTML = `
                 <strong style="color:#28a745">Resumo IA Concluído!</strong><br/>
-                <span style="font-size:0.8rem; color:#666">Se os campos não preencheram sozinhos, copie os textos abaixo:</span><br/><br/>
+                <span style="font-size:0.8rem; color:#666">Se os campos não preencheram sozinhos, copie os textos abaixo:</span><br/>
+                <div style="margin:10px 0; padding:8px 10px; border-radius:6px; background:#fff3cd; border:1px solid #ffecb5; color:#664d03; font-size:0.8rem">
+                  <strong>⚠ Atenção:</strong> a IA pode errar. É necessária a revisão do profissional antes de salvar o prontuário.
+                </div>
                 <strong>Anamnese:</strong> <br/>${estruturado.anamnese || "N/A"}<br/><br/>
                 <strong>Hipótese:</strong> <br/>${estruturado.hipotese || "N/A"}<br/><br/>
+                <strong>CID:</strong> <br/>${(estruturado.cids || []).map(nomeDoCid).join('<br/>') || "N/A"}<br/><br/>
                 <strong>Conduta:</strong> <br/>${estruturado.conduta || "N/A"}<br/><br/>
                 <strong>Observações:</strong> <br/>${estruturado.observacoes || "N/A"}
               `;
@@ -322,14 +329,131 @@ async function pararEPreencher() {
         document.getElementById('scribeStatus').innerHTML = "<strong>Passo 3/3:</strong> Injetando na tela do Vercel...";
         console.log("[Copiloto] Iniciando injeção via chrome.scripting.executeScript com allFrames: true...");
 
+        // Define window.__copilotoCid (escolha da opção do campo de CID) em todos os frames
         await chrome.scripting.executeScript({
           target: { tabId: tab.id, allFrames: true },
           world: "MAIN",
-          func: function (dados) {
+          files: ['scripts/cid_match.js']
+        }).catch((e) => console.warn("[Copiloto] Não foi possível carregar cid_match.js:", e));
+
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id, allFrames: true },
+          world: "MAIN",
+          func: async function (dados) {
+            const esperar = (ms) => new Promise(r => setTimeout(r, ms));
+
+            // Campo de busca do CID (MUI Autocomplete múltiplo): digita `busca` (termo curto, porque o
+            // campo filtra por trecho do nome), espera a busca do sistema e clica na opção que melhor
+            // corresponde a `nome` (nome completo; ver scripts/cid_match.js). Sem correspondência não
+            // clica em nada (nunca cai na primeira opção) e o campo é limpo. Devolve se algum CID foi marcado.
+            async function preencherAutocomplete(input, busca, nome = busca) {
+              const texto = busca;
+              const fecharLista = () => {
+                const proto = window.HTMLInputElement.prototype;
+                const descriptor = Object.getOwnPropertyDescriptor(proto, "value");
+                if (descriptor && descriptor.set) descriptor.set.call(input, ''); else input.value = '';
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape', code: 'Escape' }));
+                input.blur();
+              };
+
+              // Digita para disparar a busca, mas sem blur: o blur fecharia a lista antes das opções chegarem
+              input.focus();
+              const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value");
+              if (descriptor && descriptor.set) descriptor.set.call(input, texto); else input.value = texto;
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+
+              const listaId = input.getAttribute('aria-controls');
+              const buscarOpcoes = () => {
+                const lista = (listaId && document.getElementById(listaId)) || document.querySelector('[role="listbox"]');
+                return lista ? Array.from(lista.querySelectorAll('[role="option"]')) : [];
+              };
+
+              const melhorOpcao = (opcoes) => {
+                if (!window.__copilotoCid || opcoes.length === 0) return null;
+                const i = window.__copilotoCid.escolher(opcoes.map(op => op.innerText || op.textContent), busca, nome);
+                return i >= 0 ? opcoes[i] : null;
+              };
+
+              // A lista padrão (sem filtro) também aparece antes da busca responder, então não basta
+              // ela existir: só vale a opção que corresponde ao termo; sem correspondência, espera
+              // a lista parar de mudar antes de desistir.
+              const inicio = Date.now();
+              let opcao = null;
+              let assinatura = '';
+              let mudouEm = inicio;
+              while (Date.now() - inicio < 5000) {
+                await esperar(150);
+                const opcoes = buscarOpcoes();
+                opcao = melhorOpcao(opcoes);
+                if (opcao) break;
+
+                const atual = opcoes.map(o => o.textContent).join('|');
+                if (atual !== assinatura) { assinatura = atual; mudouEm = Date.now(); }
+                const estavel = Date.now() - mudouEm >= 1500;
+                const semOpcoes = document.querySelector('.MuiAutocomplete-noOptions');
+                if (estavel || (semOpcoes && Date.now() - inicio >= 1500)) break; // dá tempo ao debounce da busca
+              }
+
+              if (opcao) {
+                console.log("[Copiloto-MainWorld] CID selecionado:", opcao.innerText, "<-", nome);
+                opcao.click();
+                await esperar(300); // deixa o chip entrar e a lista fechar antes do próximo CID
+                return true;
+              }
+              console.warn("[Copiloto-MainWorld] Nenhum CID correspondente a:", nome, "(busca: " + busca + ") - fechando a lista.");
+              fecharLista();
+              return false;
+            }
+
+            // Escreve no campo disparando os eventos que o React/MUI do frontend escuta
+            function escreverValor(el, valor) {
+              el.focus();
+              const proto = el.tagName.toLowerCase() === 'textarea'
+                ? window.HTMLTextAreaElement.prototype
+                : window.HTMLInputElement.prototype;
+              const descriptor = Object.getOwnPropertyDescriptor(proto, "value");
+
+              if (descriptor && descriptor.set) {
+                descriptor.set.call(el, valor);
+              } else {
+                el.value = valor;
+              }
+
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+              el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, cancelable: true, key: 'a' }));
+              el.blur();
+            }
+
+            // A conduta fica num aninhamento do frontend que a heurística abaixo não alcança:
+            // buscamos direto pelo id/name do campo. Aceita string, array ou objeto vindo do LLM.
+            let condutaPreenchida = false;
+            const semCid = [];
+            let campoCidEncontrado = false;
+            const condutaBruta = dados.conduta;
+            const valorConduta = !condutaBruta ? '' :
+              typeof condutaBruta === 'string' ? condutaBruta.trim() :
+              Array.isArray(condutaBruta)
+                ? condutaBruta.map(i => (typeof i === 'object' ? JSON.stringify(i) : String(i))).join('\n').trim()
+                : JSON.stringify(condutaBruta, null, 2).trim();
+
+            if (valorConduta) {
+              const campoConduta = document.getElementById('prontuario-conduct')
+                || document.querySelector('textarea[name="conduct"]');
+              if (campoConduta) {
+                console.log("[Copiloto-MainWorld] Escrevendo conduta por id/name em", campoConduta.id || campoConduta.name);
+                escreverValor(campoConduta, valorConduta);
+                condutaPreenchida = true;
+              } else {
+                console.warn("[Copiloto-MainWorld] Campo da conduta não encontrado por id/name; usando heurística.");
+              }
+            }
+
             const textareas = Array.from(document.querySelectorAll('textarea, input[type="text"]'));
 
-            textareas.forEach(ta => {
-              if (ta.style.visibility === 'hidden') return;
+            for (const ta of textareas) {
+              if (ta.style.visibility === 'hidden') continue;
 
               let contextoOriginal = `${ta.placeholder || ""} ${ta.name || ""} ${ta.id || ""} ${ta.className || ""}`;
               let textoAoSedor = "";
@@ -354,12 +478,14 @@ async function pararEPreencher() {
               console.log(`[Copiloto-MainWorld] CAIXA AVALIADA: id="${ta.id || 'vazio'}" | placeholder="${ta.placeholder || 'vazio'}" | contexto="${contextoLimpo}"`);
 
               let valorAInserir = null;
+              let ehCampoHipotese = false;
               if (contextoLimpo.includes("conduta") || contextoLimpo.includes("prescriç") || contextoLimpo.includes("encaminhamento") || contextoLimpo.includes("medicament")) {
-                // Caixa "Conduta" (Colocada no topo da prioridade)
-                valorAInserir = dados.conduta;
+                // Caixa "Conduta" (já preenchida por id/name acima, quando encontrada)
+                valorAInserir = condutaPreenchida ? null : valorConduta;
               } else if (contextoLimpo.includes("suspeita") || (contextoLimpo.includes("hipótese") && contextoLimpo.includes("diagnóstica")) || contextoLimpo.includes("cid")) {
                 // Caixa "Hipótese Diagnóstica"
                 valorAInserir = dados.hipotese;
+                ehCampoHipotese = true;
               } else if (contextoLimpo.includes("observações") && contextoLimpo.includes("clínicas")) {
                 // Caixa "Observações Clínicas"
                 valorAInserir = dados.observacoes;
@@ -368,30 +494,52 @@ async function pararEPreencher() {
                 valorAInserir = dados.anamnese;
               }
 
+              const ehAutocomplete = ta.classList.contains('MuiAutocomplete-input') || !!ta.closest('.MuiAutocomplete-root');
+
+              // Campo de CID: um termo por diagnóstico (lista do modelo), cada um buscado no sistema
+              if (ehAutocomplete && ehCampoHipotese) {
+                // Cada item é { busca, nome }; aceita também uma string solta
+                const cids = (Array.isArray(dados.cids) ? dados.cids : [])
+                  .map(c => typeof c === 'string' ? { busca: c, nome: c } : { busca: c && c.busca, nome: c && c.nome })
+                  .map(c => ({ busca: String(c.busca || c.nome || '').trim(), nome: String(c.nome || c.busca || '').trim() }))
+                  .filter(c => c.busca !== '');
+                campoCidEncontrado = true;
+                for (const cid of cids) {
+                  console.log("[Copiloto-MainWorld] Buscando CID:", cid.busca, "->", cid.nome);
+                  if (!await preencherAutocomplete(ta, cid.busca, cid.nome)) semCid.push(cid.nome);
+                }
+                continue;
+              }
+
               if (valorAInserir && valorAInserir.trim() !== "") {
                 console.log("[Copiloto-MainWorld] Escrevendo:", valorAInserir, "no campo", ta.id || "sem-id");
 
-                ta.focus();
-                const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")
-                  || Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value");
-
-                if (nativeInputValueSetter) {
-                  nativeInputValueSetter.set.call(ta, valorAInserir);
+                if (ehAutocomplete) {
+                  await preencherAutocomplete(ta, valorAInserir.trim());
                 } else {
-                  ta.value = valorAInserir;
+                  escreverValor(ta, valorAInserir);
                 }
-
-                ta.dispatchEvent(new Event('input', { bubbles: true }));
-                ta.dispatchEvent(new Event('change', { bubbles: true }));
-                ta.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, cancelable: true, key: 'a' }));
-
-                ta.blur();
               }
-            });
+            }
+
+            return { semCid, campoCidEncontrado };
           },
           args: [estruturado]
-        }).then(() => {
+        }).then((resultados) => {
           console.log("[Copiloto] executeScript finalizado com sucesso!");
+
+          // Avisa quais CIDs a IA sugeriu mas não foram marcados no formulário
+          const cids = (estruturado.cids || []).map(nomeDoCid);
+          const frames = (resultados || []).map(r => r && r.result).filter(Boolean);
+          const campoEncontrado = frames.some(r => r.campoCidEncontrado);
+          const semCid = !cids.length ? [] : campoEncontrado ? [...new Set(frames.flatMap(r => r.semCid))] : cids;
+          if (semCid.length) {
+            const aviso = document.createElement('div');
+            aviso.style.cssText = "margin-top:8px; padding:6px 8px; border-radius:6px; background:#fff3cd; color:#664d03; font-size:0.8rem";
+            aviso.innerHTML = `<strong>CID não marcado automaticamente</strong> (busque manualmente):<br/>${semCid.join('<br/>')}`;
+            const backup = document.getElementById('backupScribe');
+            if (backup) backup.appendChild(aviso);
+          }
         }).catch((e) => {
           console.error("[Copiloto] ERRO CRÍTICO no executeScript:", e);
         });

@@ -104,7 +104,7 @@ pub async fn responder_chat(contexto_resumo_json: &str, pergunta_medico: &str) -
 }
 
 /// Recebe uma transcrição de áudio bruta, envia pro Gemini e retorna um envelope JSON (sempre válido):
-/// `{"ok":true,"data":{anamnese,observacoes,hipotese,conduta}}` ou `{"ok":false,"error":{kind,message}}`
+/// `{"ok":true,"data":{anamnese,observacoes,hipotese,cids,conduta}}` ou `{"ok":false,"error":{kind,message}}`
 #[wasm_bindgen]
 pub async fn estruturar_prontuario(transcricao_bruta: &str) -> String {
     let gemini_api_key = dotenvy_macro::dotenv!("GEMINI_API_KEY").trim();
