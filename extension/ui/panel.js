@@ -175,8 +175,10 @@ function ouvinteTranscricao(request) {
   if (request.action === "UPDATE_TRANSCRIPT") {
     const divTranscript = document.getElementById('scribeTranscript');
     if (divTranscript) {
+      // Só acompanha o fim se já estava no fim: assim dá para rolar para cima e ler durante a gravação
+      const noFim = divTranscript.scrollHeight - divTranscript.scrollTop - divTranscript.clientHeight <= 24;
       divTranscript.innerText = request.text;
-      divTranscript.scrollTop = divTranscript.scrollHeight;
+      if (noFim) divTranscript.scrollTop = divTranscript.scrollHeight;
     }
   } else if (request.action === "SCRIBE_STATUS") {
     mostrarStatusStt(request.status, request.motivo);
