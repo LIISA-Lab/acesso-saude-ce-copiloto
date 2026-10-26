@@ -168,6 +168,9 @@ async function iniciarEscuta() {
   }
 }
 
+// Texto de um CID sugerido: { busca, nome } (ou string solta)
+const nomeDoCid = (c) => typeof c === 'string' ? c : ((c && (c.nome || c.busca)) || '');
+
 function ouvinteTranscricao(request) {
   if (request.action === "UPDATE_TRANSCRIPT") {
     const divTranscript = document.getElementById('scribeTranscript');
@@ -325,7 +328,7 @@ async function pararEPreencher() {
                 </div>
                 <strong>Anamnese:</strong> <br/>${estruturado.anamnese || "N/A"}<br/><br/>
                 <strong>Hipótese:</strong> <br/>${estruturado.hipotese || "N/A"}<br/><br/>
-                <strong>CID:</strong> <br/>${(estruturado.cids || []).join('<br/>') || "N/A"}<br/><br/>
+                <strong>CID:</strong> <br/>${(estruturado.cids || []).map(nomeDoCid).join('<br/>') || "N/A"}<br/><br/>
                 <strong>Conduta:</strong> <br/>${estruturado.conduta || "N/A"}<br/><br/>
                 <strong>Observações:</strong> <br/>${estruturado.observacoes || "N/A"}
               `;
@@ -344,20 +347,25 @@ async function pararEPreencher() {
         document.getElementById('scribeStatus').innerHTML = "<strong>Passo 3/3:</strong> Injetando na tela do Vercel...";
         console.log("[Copiloto] Iniciando injeção via chrome.scripting.executeScript com allFrames: true...");
 
+        // Define window.__copilotoCid (escolha da opção do campo de CID) em todos os frames
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id, allFrames: true },
+          world: "MAIN",
+          files: ['scripts/cid_match.js']
+        }).catch((e) => console.warn("[Copiloto] Não foi possível carregar cid_match.js:", e));
+
         await chrome.scripting.executeScript({
           target: { tabId: tab.id, allFrames: true },
           world: "MAIN",
           func: async function (dados) {
             const esperar = (ms) => new Promise(r => setTimeout(r, ms));
-            const normalizar = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
-            // Campo de busca do CID (MUI Autocomplete múltiplo): digita o termo, espera a busca do
-            // sistema e clica na opção que corresponde ao termo. Sem correspondência não clica em
-            // nada (nunca cai na primeira opção) e o campo é limpo. Devolve se algum CID foi marcado.
-            const PALAVRAS_VAZIAS = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'a', 'o', 'as', 'os', 'em', 'na', 'no', 'com', 'por', 'para', 'ou']);
-            const palavras = (s) => normalizar(s).split(/[^a-z0-9.]+/).filter(p => p && !PALAVRAS_VAZIAS.has(p));
-
-            async function preencherAutocomplete(input, texto) {
+            // Campo de busca do CID (MUI Autocomplete múltiplo): digita `busca` (termo curto, porque o
+            // campo filtra por trecho do nome), espera a busca do sistema e clica na opção que melhor
+            // corresponde a `nome` (nome completo; ver scripts/cid_match.js). Sem correspondência não
+            // clica em nada (nunca cai na primeira opção) e o campo é limpo. Devolve se algum CID foi marcado.
+            async function preencherAutocomplete(input, busca, nome = busca) {
+              const texto = busca;
               const fecharLista = () => {
                 const proto = window.HTMLInputElement.prototype;
                 const descriptor = Object.getOwnPropertyDescriptor(proto, "value");
@@ -379,30 +387,10 @@ async function pararEPreencher() {
                 return lista ? Array.from(lista.querySelectorAll('[role="option"]')) : [];
               };
 
-              const codigos = (String(texto).match(/[A-Z]\d{2}(?:\.\d+)?/gi) || []).map(normalizar);
-              const palavrasTermo = palavras(texto);
-
-              // Melhor opção: código citado, ou a que cobre mais palavras do termo (mínimo 75%);
-              // no empate, a mais curta (a menos específica além do que foi dito).
               const melhorOpcao = (opcoes) => {
-                let melhor = null;
-                let melhorNota = 0;
-                let melhorTamanho = Infinity;
-                for (const op of opcoes) {
-                  const textoOp = normalizar(op.innerText || op.textContent);
-                  if (codigos.some(c => textoOp.includes(c))) return op;
-                  const palavrasOp = new Set(palavras(textoOp));
-                  const nota = palavrasTermo.length
-                    ? palavrasTermo.filter(p => palavrasOp.has(p)).length / palavrasTermo.length
-                    : 0;
-                  if (nota < 0.75) continue;
-                  if (nota > melhorNota || (nota === melhorNota && palavrasOp.size < melhorTamanho)) {
-                    melhor = op;
-                    melhorNota = nota;
-                    melhorTamanho = palavrasOp.size;
-                  }
-                }
-                return melhor;
+                if (!window.__copilotoCid || opcoes.length === 0) return null;
+                const i = window.__copilotoCid.escolher(opcoes.map(op => op.innerText || op.textContent), busca, nome);
+                return i >= 0 ? opcoes[i] : null;
               };
 
               // A lista padrão (sem filtro) também aparece antes da busca responder, então não basta
@@ -426,12 +414,12 @@ async function pararEPreencher() {
               }
 
               if (opcao) {
-                console.log("[Copiloto-MainWorld] CID selecionado:", opcao.innerText, "<-", texto);
+                console.log("[Copiloto-MainWorld] CID selecionado:", opcao.innerText, "<-", nome);
                 opcao.click();
                 await esperar(300); // deixa o chip entrar e a lista fechar antes do próximo CID
                 return true;
               }
-              console.warn("[Copiloto-MainWorld] Nenhum CID correspondente a:", texto, "- fechando a lista.");
+              console.warn("[Copiloto-MainWorld] Nenhum CID correspondente a:", nome, "(busca: " + busca + ") - fechando a lista.");
               fecharLista();
               return false;
             }
@@ -528,11 +516,15 @@ async function pararEPreencher() {
 
               // Campo de CID: um termo por diagnóstico (lista do modelo), cada um buscado no sistema
               if (ehAutocomplete && ehCampoHipotese) {
-                const cids = Array.isArray(dados.cids) ? dados.cids.filter(c => String(c).trim() !== '') : [];
+                // Cada item é { busca, nome }; aceita também uma string solta
+                const cids = (Array.isArray(dados.cids) ? dados.cids : [])
+                  .map(c => typeof c === 'string' ? { busca: c, nome: c } : { busca: c && c.busca, nome: c && c.nome })
+                  .map(c => ({ busca: String(c.busca || c.nome || '').trim(), nome: String(c.nome || c.busca || '').trim() }))
+                  .filter(c => c.busca !== '');
                 campoCidEncontrado = true;
                 for (const cid of cids) {
-                  console.log("[Copiloto-MainWorld] Buscando CID:", cid);
-                  if (!await preencherAutocomplete(ta, String(cid).trim())) semCid.push(String(cid).trim());
+                  console.log("[Copiloto-MainWorld] Buscando CID:", cid.busca, "->", cid.nome);
+                  if (!await preencherAutocomplete(ta, cid.busca, cid.nome)) semCid.push(cid.nome);
                 }
                 continue;
               }
@@ -555,7 +547,7 @@ async function pararEPreencher() {
           console.log("[Copiloto] executeScript finalizado com sucesso!");
 
           // Avisa quais CIDs a IA sugeriu mas não foram marcados no formulário
-          const cids = estruturado.cids || [];
+          const cids = (estruturado.cids || []).map(nomeDoCid);
           const frames = (resultados || []).map(r => r && r.result).filter(Boolean);
           const campoEncontrado = frames.some(r => r.campoCidEncontrado);
           const semCid = !cids.length ? [] : campoEncontrado ? [...new Set(frames.flatMap(r => r.semCid))] : cids;
@@ -660,30 +652,6 @@ chrome.storage.onChanged.addListener((changes) => {
     limparChat();
   }
 });
-
-// Função para mostrar ou ocultar a caixa de escrita
-function mostrarEscriba(visivel) {
-    const box = document.getElementById('scribeBox');
-
-    box.style.display = visivel ? '' : 'none';
-}
-
-// Diz se a URL é a da videochamada, onde o Escriba deve aparecer
-function urlDoEscriba(url) {
-  return url?.includes('teleatendimento.vercel.app/video-conference');
-}
-
-// Mostra ou oculta a caixa de escrita dependendo da URL da aba do teleatendimento
-chrome.storage.session.get('urlTeleatendimento', ({ urlTeleatendimento }) => {
-  mostrarEscriba(urlDoEscriba(urlTeleatendimento));
-});
-
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area == 'session' && changes.urlTeleatendimento) {
-    mostrarEscriba(urlDoEscriba(changes.urlTeleatendimento.newValue));
-  }
-});
-
 
 document.addEventListener("DOMContentLoaded", inicializar);
 
