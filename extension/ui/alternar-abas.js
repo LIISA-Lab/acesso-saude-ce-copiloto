@@ -1,3 +1,5 @@
+import { resetarEscriba } from './panel.js';
+
 let emTeleconsulta = false;
 let abaAtual = 'chat';
 
@@ -18,11 +20,17 @@ function atualizarTab() {
 // Função para mostrar ou ocultar a caixa de escrita
 function mostrarEscriba(visivel) {
   const entrouNaConsulta = visivel && !emTeleconsulta;
+  const saiuDaConsulta = !visivel &&emTeleconsulta;
   emTeleconsulta = visivel;
+
   if (entrouNaConsulta) {
     trocarAba('escriba');
   } else {
     atualizarTab();
+  }
+
+  if (saiuDaConsulta) {
+    resetarEscriba();
   }
 }
 

@@ -119,9 +119,6 @@
 
   function atualizarContexto() {
     try {
-      // 0. Engana o React forçando a abertura dos históricos para ler os textos ocultos
-      // autoExpandirHistorico();
-
       // 1. Extrai o dado do DOM
       const dadosBrutos = extrairDadosDoSessionStorage();
 

@@ -182,7 +182,7 @@ function ouvinteTranscricao(request) {
 
 // Descarta a gravação, a transcrição e o resultado do atendimento anterior e
 // devolve o Escriba ao estado inicial. Chamado quando o médico troca de card.
-function resetarEscriba() {
+export function resetarEscriba() {
   geracaoEscriba++;
 
   if (chrome.runtime.onMessage.hasListener(ouvinteTranscricao)) {
