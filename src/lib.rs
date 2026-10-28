@@ -4,6 +4,7 @@ mod services;
 
 use crate::domain::patient::Historico;
 use crate::infrastructure::gemini_client::chamar_gemini;
+use crate::infrastructure::langfuse_client;
 use crate::services::escriba::estruturar_prontuario_json;
 use crate::services::sanitizer::Sanitizer;
 use crate::services::summarizer::Summarizer;
@@ -15,6 +16,15 @@ use wasm_bindgen_futures::JsFuture;
 pub fn main_js() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     Ok(())
+}
+
+/// Inicia uma nova sessão de telemetria (um atendimento). O id é aleatório: nenhum dado
+/// do paciente vai para o Langfuse como identificador. Devolve o id da sessão.
+#[wasm_bindgen]
+pub fn nova_sessao_telemetria() -> String {
+    let id = langfuse_client::novo_trace_id();
+    langfuse_client::definir_sessao(Some(id.clone()));
+    id
 }
 
 /// Recebe o JSON do histórico capturado no DOM, sanitiza e gera um resumo clínico
