@@ -6,7 +6,7 @@ const site_teleatendimento = TELEATENDIMENTO_URL;
 function injetarContentScript(tabId) {
   chrome.scripting.executeScript({
     target: { tabId: tabId },
-    files: ['scripts/content_script.js']
+    files: ['scripts/stt_engine.js', 'scripts/content_script.js']
   }).catch(err => console.error("Erro ao forçar injeção:", err));
 }
 

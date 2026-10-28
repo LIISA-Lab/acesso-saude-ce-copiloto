@@ -140,85 +140,52 @@
   // ============================================
   // ESCRIBA AI - Reconhecimento de Voz (Mic do Jitsi)
   // ============================================
-  let recognition = null;
-  let transcricaoAcumulada = "";
-  let gravando = false;
+  // A lógica (reinício automático e erros) vive em stt_engine.js; aqui
+  // fica só a cola com o painel lateral.
+  const ReconhecimentoCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-  // Inicializa a API nativa do navegador
-  if ('webkitSpeechRecognition' in window) {
-    recognition = new webkitSpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'pt-BR';
+  const enviarAoPainel = (mensagem) => {
+    try {
+      chrome.runtime.sendMessage(mensagem).catch(() => { });
+    } catch (e) { /* contexto invalidado: o motor para de reiniciar sozinho */ }
+  };
 
-    recognition.onresult = function (event) {
-      if (!gravando) return; // Trava de segurança para ignorar áudio residual
+  const motorStt = window.__copilotoStt.criarMotorStt({
+    criarReconhecimento: ReconhecimentoCtor ? () => new ReconhecimentoCtor() : null,
+    contextoValido: () => {
+      try { return !!(chrome.runtime && chrome.runtime.id); } catch (e) { return false; }
+    },
+    aoTexto: (texto) => enviarAoPainel({ action: "UPDATE_TRANSCRIPT", text: texto }),
+    aoStatus: ({ status, motivo }) => enviarAoPainel({ action: "SCRIBE_STATUS", status, motivo }),
+    log: (msg) => console.log("[Copiloto][Scribe]", msg),
+  });
 
-      let textoInterino = "";
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-          transcricaoAcumulada += event.results[i][0].transcript + " ";
-        } else {
-          textoInterino += event.results[i][0].transcript;
-        }
-      }
-
-      // Manda em tempo real pro painel lateral
-      chrome.runtime.sendMessage({
-        action: "UPDATE_TRANSCRIPT",
-        text: transcricaoAcumulada + textoInterino
-      }).catch(() => { });
-    };
-
-    recognition.onerror = function (event) {
-      console.error("[Copiloto Scribe] Erro no microfone:", event.error);
-      if (event.error === 'not-allowed') gravando = false;
-    };
+  if (typeof window.addEventListener === 'function') {
+    window.addEventListener('pagehide', () => motorStt.dispose());
   }
 
   // Escuta os comandos do Painel Lateral
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "START_RECORDING") {
-      gravando = false;
-      if (recognition) {
-        try { recognition.abort(); } catch (e) { } // Mata qualquer gravação fantasma antiga
-      }
-
-      transcricaoAcumulada = "";
-      gravando = true;
-
-      // Dá um tempinho de 100ms pro abort funcionar antes de reiniciar
-      setTimeout(() => {
-        if (recognition && gravando) {
-          try { recognition.start(); } catch (e) { }
-        }
-      }, 100);
+      motorStt.iniciar();
       sendResponse({ status: "started" });
     }
 
     else if (request.action === "STOP_RECORDING") {
-      // `gravando = false` já faz o onresult ignorar áudio residual. Não se deve
-      // zerar `recognition.onresult` aqui: nada o restaura e a gravação seguinte
-      // ficaria para sempre sem transcrição.
-      gravando = false;
-      if (recognition) {
-        try { recognition.stop(); } catch (e) { }
-        try { recognition.abort(); } catch (e) { } // Força a parada imediata
-      }
-      sendResponse({ status: "stopped" });
+      // Resposta assíncrona: o motor espera o resultado final do reconhecedor
+      motorStt.parar().then(({ transcript }) => {
+        sendResponse({ status: "stopped", transcript });
+      });
+      return true;
     }
 
     // Descarta a gravação em andamento (ex.: o médico trocou de atendimento)
     else if (request.action === "CANCEL_RECORDING") {
-      gravando = false;
-      transcricaoAcumulada = "";
-      if (recognition) {
-        try { recognition.abort(); } catch (e) { }
-      }
+      motorStt.cancelar();
       sendResponse({ status: "cancelled" });
     }
 
-    return true;
+    return false;
   });
 
   // Roda a extração pela primeira vez imediatamente, aguardando o tempo do React montar a tela
