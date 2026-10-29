@@ -1,4 +1,6 @@
+use crate::infrastructure::langfuse_client::{self, ChamadaLlm, Nivel, Uso};
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use std::fmt;
 use wasm_bindgen::JsValue;
 
@@ -56,6 +58,8 @@ pub struct PedidoGemini {
     pub prompt: String,
     pub system_instruction: Option<String>,
     pub generation_config: Option<GenerationConfig>,
+    /// Nome do trace na telemetria (ex.: "chat", "escriba").
+    pub operacao: &'static str,
 }
 
 impl PedidoGemini {
@@ -111,6 +115,31 @@ struct ApiErrorEnvelope {
 #[derive(Deserialize)]
 struct ApiError {
     message: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UsoResponse {
+    usage_metadata: Option<UsageMetadata>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageMetadata {
+    prompt_token_count: Option<u32>,
+    candidates_token_count: Option<u32>,
+    thoughts_token_count: Option<u32>,
+    total_token_count: Option<u32>,
+}
+
+/// Tokens de `usageMetadata`. O raciocínio (`thoughts`) é cobrado como saída.
+pub fn extrair_uso(corpo: &str) -> Option<Uso> {
+    let uso = serde_json::from_str::<UsoResponse>(corpo).ok()?.usage_metadata?;
+    Some(Uso {
+        input: uso.prompt_token_count.unwrap_or(0),
+        output: uso.candidates_token_count.unwrap_or(0) + uso.thoughts_token_count.unwrap_or(0),
+        total: uso.total_token_count,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -277,10 +306,84 @@ fn chave_valida(api_key: &str) -> bool {
 
 /// Envia o pedido ao Gemini e devolve o texto gerado ou um erro tipado.
 pub async fn gerar_conteudo(pedido: PedidoGemini, api_key: &str) -> Result<String, GeminiError> {
+    gerar_conteudo_rastreado(pedido, api_key).await.0
+}
+
+/// Como `gerar_conteudo`, mas também devolve o id do trace registrado na telemetria,
+/// para associar scores à chamada (`None` se a chamada nem chegou a ser feita).
+pub async fn gerar_conteudo_rastreado(
+    pedido: PedidoGemini,
+    api_key: &str,
+) -> (Result<String, GeminiError>, Option<String>) {
     if !chave_valida(api_key) {
-        return Err(GeminiError::ChaveNaoConfigurada);
+        return (Err(GeminiError::ChaveNaoConfigurada), None);
     }
 
+    let inicio_ms = langfuse_client::agora_ms();
+    let operacao = if pedido.operacao.is_empty() { "gemini" } else { pedido.operacao };
+    let input = mensagens_telemetria(&pedido);
+    let parametros = parametros_telemetria(pedido.generation_config.as_ref());
+
+    let (resultado, uso) = enviar_pedido(pedido, api_key).await;
+
+    let (nivel, output, status) = match &resultado {
+        Ok(texto) => (Nivel::Default, json!(texto), None),
+        Err(e @ GeminiError::Truncado { parcial }) => {
+            (Nivel::Warning, json!(parcial), Some(e.to_string()))
+        }
+        Err(e) => (Nivel::Error, Value::Null, Some(e.to_string())),
+    };
+    let mut metadata = vec![("operacao".to_string(), operacao.to_string())];
+    if let Err(e) = &resultado {
+        metadata.push(("erro_kind".to_string(), e.kind().to_string()));
+    }
+
+    let trace_id = langfuse_client::registrar_chamada_llm(ChamadaLlm {
+        operacao: operacao.to_string(),
+        modelo: GEMINI_MODEL.to_string(),
+        inicio_ms,
+        fim_ms: langfuse_client::agora_ms(),
+        input,
+        output,
+        parametros,
+        uso,
+        nivel,
+        status,
+        metadata,
+    });
+
+    (resultado, Some(trace_id))
+}
+
+/// Pedido no formato de mensagens, como a UI do Langfuse exibe.
+fn mensagens_telemetria(pedido: &PedidoGemini) -> Value {
+    let mut mensagens = Vec::new();
+    if let Some(sistema) = &pedido.system_instruction {
+        mensagens.push(json!({ "role": "system", "content": sistema }));
+    }
+    mensagens.push(json!({ "role": "user", "content": pedido.prompt }));
+    Value::Array(mensagens)
+}
+
+/// Parâmetros escalares do `generationConfig` (o JSON Schema fica de fora).
+fn parametros_telemetria(config: Option<&GenerationConfig>) -> Value {
+    let Some(config) = config else {
+        return json!({});
+    };
+    let mut parametros = serde_json::Map::new();
+    if let Some(mime) = &config.response_mime_type {
+        parametros.insert("responseMimeType".into(), json!(mime));
+    }
+    if let Some(thinking) = &config.thinking_config {
+        parametros.insert("thinkingLevel".into(), json!(thinking.thinking_level));
+    }
+    if let Some(max) = config.max_output_tokens {
+        parametros.insert("maxOutputTokens".into(), json!(max));
+    }
+    Value::Object(parametros)
+}
+
+async fn enviar_pedido(pedido: PedidoGemini, api_key: &str) -> (Result<String, GeminiError>, Option<Uso>) {
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
         GEMINI_MODEL, api_key
@@ -303,18 +406,16 @@ pub async fn gerar_conteudo(pedido: PedidoGemini, api_key: &str) -> Result<Strin
         generation_config: pedido.generation_config,
     };
 
-    let res = reqwest::Client::new()
-        .post(&url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| GeminiError::Rede(e.without_url().to_string()))?;
+    let res = match reqwest::Client::new().post(&url).json(&body).send().await {
+        Ok(res) => res,
+        Err(e) => return (Err(GeminiError::Rede(e.without_url().to_string())), None),
+    };
 
     let status = res.status().as_u16();
-    let corpo = res
-        .text()
-        .await
-        .map_err(|e| GeminiError::Rede(e.without_url().to_string()))?;
+    let corpo = match res.text().await {
+        Ok(corpo) => corpo,
+        Err(e) => return (Err(GeminiError::Rede(e.without_url().to_string())), None),
+    };
 
     let resultado = interpretar_resposta(status, &corpo);
 
@@ -327,7 +428,7 @@ pub async fn gerar_conteudo(pedido: PedidoGemini, api_key: &str) -> Result<Strin
         )));
     }
 
-    resultado
+    (resultado, extrair_uso(&corpo))
 }
 
 /// Chamada de texto livre usada pelo chat. Mantém o comportamento anterior:
@@ -338,7 +439,11 @@ pub async fn chamar_gemini(prompt: String, api_key: &str) -> Result<String, Gemi
         return Ok("AVISO: A chave da API do Gemini não foi configurada. O sistema está rodando sem integração LLM no momento.".to_string());
     }
 
-    match gerar_conteudo(PedidoGemini::simples(prompt), api_key).await {
+    let pedido = PedidoGemini {
+        operacao: "chat",
+        ..PedidoGemini::simples(prompt)
+    };
+    match gerar_conteudo(pedido, api_key).await {
         Err(GeminiError::Truncado { parcial }) if !parcial.trim().is_empty() => Ok(parcial),
         outro => outro,
     }
@@ -514,6 +619,53 @@ mod tests {
         assert_eq!(GeminiError::Truncado { parcial: String::new() }.kind(), "truncado");
         assert_eq!(GeminiError::RespostaVazia.kind(), "vazio");
         assert_eq!(GeminiError::FormatoInvalido("x".into()).kind(), "invalido");
+    }
+
+    #[test]
+    fn uso_soma_raciocinio_na_saida() {
+        let corpo = r#"{"candidates":[],"usageMetadata":{"promptTokenCount":120,"candidatesTokenCount":40,"thoughtsTokenCount":15,"totalTokenCount":175}}"#;
+        assert_eq!(
+            extrair_uso(corpo),
+            Some(Uso {
+                input: 120,
+                output: 55,
+                total: Some(175)
+            })
+        );
+        let sem_thoughts = r#"{"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":2}}"#;
+        assert_eq!(extrair_uso(sem_thoughts).unwrap().output, 2);
+        assert_eq!(extrair_uso(r#"{"candidates":[]}"#), None);
+        assert_eq!(extrair_uso("<html>"), None);
+    }
+
+    #[test]
+    fn telemetria_usa_mensagens_e_parametros_escalares() {
+        let pedido = PedidoGemini {
+            prompt: "oi".into(),
+            system_instruction: Some("sys".into()),
+            generation_config: Some(GenerationConfig {
+                response_mime_type: Some("application/json".into()),
+                response_json_schema: Some(json!({"type": "object"})),
+                thinking_config: Some(ThinkingConfig {
+                    thinking_level: "LOW".into(),
+                }),
+                max_output_tokens: Some(8192),
+            }),
+            operacao: "escriba",
+        };
+        assert_eq!(
+            mensagens_telemetria(&pedido),
+            json!([{"role": "system", "content": "sys"}, {"role": "user", "content": "oi"}])
+        );
+        assert_eq!(
+            parametros_telemetria(pedido.generation_config.as_ref()),
+            json!({"responseMimeType": "application/json", "thinkingLevel": "LOW", "maxOutputTokens": 8192})
+        );
+        assert_eq!(parametros_telemetria(None), json!({}));
+        assert_eq!(
+            mensagens_telemetria(&PedidoGemini::simples("p".into())),
+            json!([{"role": "user", "content": "p"}])
+        );
     }
 
     #[test]

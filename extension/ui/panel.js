@@ -1,4 +1,4 @@
-import init, { responder_chat, processar_historico, estruturar_prontuario } from '../pkg/acesso_saude_ce_copiloto.js';
+import init, { responder_chat, processar_historico, estruturar_prontuario, nova_sessao_telemetria } from '../pkg/acesso_saude_ce_copiloto.js';
 import { criarDetectorDeTroca } from './troca-atendimento.js';
 import { descreverStatusStt } from './stt-status.js';
 
@@ -52,6 +52,7 @@ async function inicializar() {
   }
 
   resumoDiv.innerHTML = "<p>Wasm carregado. Monitorando a tela...</p>";
+  nova_sessao_telemetria();
 
   // Função que puxa o texto bruto extraído da tela, processa no RUST e mostra na tela
   function verificarDadosDaTela() {
@@ -650,6 +651,8 @@ chrome.storage.onChanged.addListener((changes) => {
   if (atendimentoMudou(antigo.id_atendimento, novo.id_atendimento)) {
     resetarEscriba();
     limparChat();
+    // O listener pode disparar antes de o Wasm terminar de carregar; o init já abre a sessão
+    try { nova_sessao_telemetria(); } catch (_) {}
   }
 });
 
