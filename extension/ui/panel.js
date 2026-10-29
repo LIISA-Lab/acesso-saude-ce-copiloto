@@ -72,13 +72,13 @@ async function inicializar() {
 
           resumoDiv.innerHTML = `
             <strong>Paciente:</strong> ${resumoObj.paciente_id}<br/>
-            <strong>Idade:</strong> ${resumoObj.paciente_idade ? `${resumoObj.paciente_idade} anos` : 'Desconhecida'}<br/>
+            <strong>Idade:</strong> ${resumoObj.paciente_idade ? `${resumoObj.paciente_idade} anos` : 'Data de nasc. ausente'}<br/>
             <strong>Atendimentos:</strong> ${resumoObj.total_atendimentos}<br/>
             <strong>Último Diagnóstico:</strong> ${resumoObj.ultimo_diagnostico || 'Nenhum'}<br/>
           `;
 
           if (document.querySelectorAll('.message.bot').length === 0) {
-            addMessage("bot", "Olá, Doutor(a). O histórico foi processado (PII removido). Como posso ajudar?");
+            addMessage("bot", "Olá, doutor(a)! Histórico processado. Como posso ajudar?");
           }
         } catch (err) {
           console.error("Erro no processar_historico (Rust):", err);
@@ -323,9 +323,8 @@ async function pararEPreencher() {
         backupDiv.style.border = "2px solid #28a745";
         backupDiv.innerHTML = `
                 <strong style="color:#28a745">Resumo IA Concluído!</strong><br/>
-                <span style="font-size:0.8rem; color:#666">Se os campos não preencheram sozinhos, copie os textos abaixo:</span><br/>
                 <div style="margin:10px 0; padding:8px 10px; border-radius:6px; background:#fff3cd; border:1px solid #ffecb5; color:#664d03; font-size:0.8rem">
-                  <strong>⚠ Atenção:</strong> a IA pode errar. É necessária a revisão do profissional antes de salvar o prontuário.
+                  <strong>⚠ Atenção:</strong> A IA pode cometer erros. Revise as informações antes de salvar o prontuário.
                 </div>
                 <strong>Anamnese:</strong> <br/>${estruturado.anamnese || "N/A"}<br/><br/>
                 <strong>Hipótese:</strong> <br/>${estruturado.hipotese || "N/A"}<br/><br/>
@@ -563,7 +562,7 @@ async function pararEPreencher() {
           console.error("[Copiloto] ERRO CRÍTICO no executeScript:", e);
         });
 
-        document.getElementById('scribeStatus').innerHTML = `<span style="color:green"><strong>Finalizado! ✓</strong> Verifique os campos.</span>`;
+        document.getElementById('scribeStatus').innerHTML = `<span style="color:green"><strong>Finalizado!</strong> Verifique os campos.</span>`;
 
       } else {
         console.warn("[Copiloto] Parou mas não tinha texto válido na tela.");
