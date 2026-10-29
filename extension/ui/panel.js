@@ -70,12 +70,12 @@ async function inicializar() {
           // Salva como String JSON pra enviar pro LLM depois
           resumoJson = JSON.stringify(resumoObj);
 
-          resumoDiv.innerHTML = `
-            <strong>Paciente:</strong> ${resumoObj.paciente_id}<br/>
-            <strong>Idade:</strong> ${resumoObj.paciente_idade ? `${resumoObj.paciente_idade} anos` : 'Data de nasc. ausente'}<br/>
-            <strong>Atendimentos:</strong> ${resumoObj.total_atendimentos}<br/>
-            <strong>Último Diagnóstico:</strong> ${resumoObj.ultimo_diagnostico || 'Nenhum'}<br/>
-          `;
+          resumoDiv.replaceChildren(
+            campoRotulado('Paciente:', resumoObj.paciente_id),
+            campoRotulado('Idade:', resumoObj.paciente_idade ? `${resumoObj.paciente_idade} anos` : 'Data de nasc. ausente'),
+            campoRotulado('Atendimentos:', resumoObj.total_atendimentos),
+            campoRotulado('Último Diagnóstico:', resumoObj.ultimo_diagnostico || 'Nenhum'),
+          );
 
           if (document.querySelectorAll('.message.bot').length === 0) {
             addMessage("bot", "Olá, doutor(a)! Histórico processado. Como posso ajudar?");
@@ -326,12 +326,15 @@ async function pararEPreencher() {
                 <div style="margin:10px 0; padding:8px 10px; border-radius:6px; background:#fff3cd; border:1px solid #ffecb5; color:#664d03; font-size:0.8rem">
                   <strong>⚠ Atenção:</strong> A IA pode cometer erros. Revise as informações antes de salvar o prontuário.
                 </div>
-                <strong>Anamnese:</strong> <br/>${estruturado.anamnese || "N/A"}<br/><br/>
-                <strong>Hipótese:</strong> <br/>${estruturado.hipotese || "N/A"}<br/><br/>
-                <strong>CID:</strong> <br/>${(estruturado.cids || []).map(nomeDoCid).join('<br/>') || "N/A"}<br/><br/>
-                <strong>Conduta:</strong> <br/>${estruturado.conduta || "N/A"}<br/><br/>
-                <strong>Observações:</strong> <br/>${estruturado.observacoes || "N/A"}
               `;
+        // Texto do modelo nunca vai como HTML (ver tasks/prompt-hardening/spec.md, R1)
+        backupDiv.append(
+          campoRotulado('Anamnese:', estruturado.anamnese || "N/A", true),
+          campoRotulado('Hipótese:', estruturado.hipotese || "N/A", true),
+          campoRotulado('CID:', (estruturado.cids || []).map(nomeDoCid).join('\n') || "N/A", true),
+          campoRotulado('Conduta:', estruturado.conduta || "N/A", true),
+          campoRotulado('Observações:', estruturado.observacoes || "N/A", true),
+        );
 
         const container = document.getElementById('scribeBox');
         const oldBackup = document.getElementById('backupScribe');
@@ -554,7 +557,11 @@ async function pararEPreencher() {
           if (semCid.length) {
             const aviso = document.createElement('div');
             aviso.style.cssText = "margin-top:8px; padding:6px 8px; border-radius:6px; background:#fff3cd; color:#664d03; font-size:0.8rem";
-            aviso.innerHTML = `<strong>CID não marcado automaticamente</strong> (busque manualmente):<br/>${semCid.join('<br/>')}`;
+            aviso.innerHTML = `<strong>CID não marcado automaticamente</strong> (busque manualmente):`;
+            const lista = document.createElement('div');
+            lista.className = 'texto-livre';
+            lista.textContent = semCid.join('\n');
+            aviso.appendChild(lista);
             const backup = document.getElementById('backupScribe');
             if (backup) backup.appendChild(aviso);
           }
@@ -607,7 +614,7 @@ async function handleSend() {
         throw resposta;
       }
 
-      document.getElementById(typingId).innerHTML = resposta.replace(/\n/g, '<br>');
+      document.getElementById(typingId).textContent = resposta;
     } catch (err) {
       console.error("[Copiloto] Erro na IA:", err);
       document.getElementById(typingId).textContent = mensagemErro(err);
@@ -623,11 +630,25 @@ function addMessage(sender, text, id = null) {
   const container = document.getElementById('chatContainer');
   const msgDiv = document.createElement('div');
   msgDiv.className = `message ${sender}`;
-  msgDiv.innerHTML = text; // Permite HTML básico como <br> e cores
+  msgDiv.textContent = text; // Texto puro: pode vir do médico ou do modelo
   if (id) msgDiv.id = id;
 
   container.appendChild(msgDiv);
   container.scrollTop = container.scrollHeight;
+}
+
+// "<strong>rótulo</strong> valor" sem interpretar o valor como HTML (vem do modelo ou da página).
+// Em bloco, o valor vai na linha de baixo, como no resumo do Escriba.
+function campoRotulado(rotulo, valor, emBloco = false) {
+  const linha = document.createElement('div');
+  if (emBloco) linha.style.marginBottom = '10px';
+  const titulo = document.createElement('strong');
+  titulo.textContent = rotulo;
+  const texto = document.createElement(emBloco ? 'div' : 'span');
+  texto.className = 'texto-livre';
+  texto.textContent = String(valor);
+  linha.append(titulo, emBloco ? '' : ' ', texto);
+  return linha;
 }
 // Remove as mensagens da tela quando o paciente muda
 function limparChat() {

@@ -276,6 +276,14 @@ header p {
   padding: 10px 15px;
   border-radius: 12px;
   font-size: 0.95rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Texto vindo do modelo ou da página, exibido com textContent: preserva as quebras de linha */
+.texto-livre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .message.user {
