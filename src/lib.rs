@@ -3,9 +3,12 @@ mod infrastructure;
 mod services;
 
 use crate::domain::patient::Historico;
-use crate::infrastructure::gemini_client::chamar_gemini;
+use crate::infrastructure::gemini_client::chamar_chat;
 use crate::infrastructure::langfuse_client;
 use crate::services::escriba::estruturar_prontuario_json;
+use crate::services::prompts::{
+    AVISO_PERGUNTA_LONGA, limpar_saida, pedido_chat, pergunta_longa, scores_chat,
+};
 use crate::services::sanitizer::Sanitizer;
 use crate::services::summarizer::Summarizer;
 use wasm_bindgen::prelude::*;
@@ -57,57 +60,21 @@ pub async fn responder_chat(contexto_resumo_json: &str, pergunta_medico: &str) -
         serde_json::from_str(contexto_resumo_json);
 
     if let Ok(resumo) = resumo_clinico {
-        // Montar a cronologia completa de atendimentos
-        let mut cronologia_consultas = String::new();
-        if resumo.historico_atendimentos.is_empty() {
-            cronologia_consultas.push_str("Nenhum histórico capturado ainda.\n");
-        } else {
-            for (i, atendimento) in resumo.historico_atendimentos.iter().enumerate() {
-                cronologia_consultas.push_str(&format!(
-                    "Consulta {} ({}):\n- Diagnóstico: {}\n- Conduta: {}\n- Observações: {}\n",
-                    i + 1,
-                    atendimento.data_hora,
-                    atendimento.hipotese_diagnostica,
-                    atendimento.conduta_medica,
-                    atendimento
-                        .observacoes_adicionais
-                        .as_deref()
-                        .unwrap_or("Nenhuma")
-                ));
+        if pergunta_longa(pergunta_medico) {
+            return AVISO_PERGUNTA_LONGA.to_string();
+        }
+
+        let (resultado, trace_id) =
+            chamar_chat(pedido_chat(&resumo, pergunta_medico), gemini_api_key).await;
+        return match resultado {
+            Ok(resposta) => {
+                if let Some(trace_id) = trace_id {
+                    langfuse_client::registrar_scores(scores_chat(&trace_id, &resposta));
+                }
+                limpar_saida(&resposta)
             }
-        }
-
-        // Formatar o contexto para a IA
-        let prompt_contexto = format!(
-            "Você é um assistente médico especialista de IA chamado Copiloto Acesso Saúde CE.\n\
-             Você está ajudando um médico durante uma teleconsulta. Use APENAS as informações abaixo para responder a pergunta.\n\
-             Seja conciso, profissional e direito ao ponto.\n\
-             \n\
-             DADOS DO PACIENTE:\n\
-             Idade: {}\n\
-             Total de atendimentos: {}\n\
-             Alergias conhecidas: {}\n\
-             \n\
-             CRONOLOGIA DO HISTÓRICO DE CONSULTAS (Analise toda a evolução):\n\
-             {}\n\
-             \n\
-             PERGUNTA DO MÉDICO: {}",
-            resumo.paciente_idade,
-            resumo.total_atendimentos,
-            if resumo.alergias.is_empty() {
-                "Nenhuma registrada".to_string()
-            } else {
-                resumo.alergias.join(", ")
-            },
-            cronologia_consultas,
-            pergunta_medico
-        );
-
-        // Chamar a API do Gemini
-        match chamar_gemini(prompt_contexto, gemini_api_key).await {
-            Ok(resposta) => return resposta,
-            Err(e) => return format!("Erro na comunicação com a IA: {}", e),
-        }
+            Err(e) => format!("Erro na comunicação com a IA: {}", e),
+        };
     }
 
     "Erro ao ler o contexto do paciente. Por favor, recarregue a página.".to_string()
