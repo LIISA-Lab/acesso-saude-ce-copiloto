@@ -10,7 +10,7 @@
     id: "Aguardando navegação...",
     nome: "Aguardando navegação...",
     cpf: "000.000.000-00",
-    idade: 0
+    idade: null // null = idade ausente; 0 = menos de 1 ano
   };
   let atendimentosGlobais = [];
   let total_atendimentosGlobal = 0;
@@ -65,7 +65,8 @@
 
     try {
       const nome = sessionStorage.getItem('paciente_nome') || "Aguardando navegação...";
-      const idade = parseInt(sessionStorage.getItem('paciente_idade')) || 0;
+      const idadeLida = parseInt(sessionStorage.getItem('paciente_idade'), 10);
+      const idade = Number.isNaN(idadeLida) ? null : idadeLida;
 
       if (nome !== pacienteGlobal.nome || idade !== pacienteGlobal.idade) {
         pacienteGlobal.nome = nome;

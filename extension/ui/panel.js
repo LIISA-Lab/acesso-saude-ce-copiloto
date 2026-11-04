@@ -30,6 +30,7 @@ function mensagemErroEscriba(erro) {
     case 'config': return "Problema com a configuração da IA (chave ou modelo). Avise o suporte.";
     case 'bloqueado': return "A IA não pôde processar esta transcrição.";
     case 'truncado': return "A resposta da IA foi cortada. Tente novamente.";
+    case 'longo': return "A transcrição ficou longa demais para a IA. Preencha o prontuário manualmente.";
     case 'vazio':
     case 'invalido': return "A IA não retornou um prontuário válido. Tente novamente.";
     default: return mensagemErro(erro?.message); // indisponivel: 503/429 pelo texto
@@ -47,7 +48,7 @@ async function inicializar() {
     await init('../pkg/acesso_saude_ce_copiloto_bg.wasm');
   } catch (e) {
     console.error("Erro Wasm:", e);
-    resumoDiv.innerHTML = `<p style='color:red;'>Erro ao iniciar Wasm: ${e.message || e}</p>`;
+    mostrarErro(resumoDiv, `Erro ao iniciar Wasm: ${e.message || e}`);
     return;
   }
 
@@ -58,7 +59,7 @@ async function inicializar() {
   function verificarDadosDaTela() {
     chrome.storage.local.get(['dadosBrutosDaTela'], (result) => {
       if (chrome.runtime.lastError) {
-        resumoDiv.innerHTML = `<p style='color:red;'>Erro no storage: ${chrome.runtime.lastError.message}</p>`;
+        mostrarErro(resumoDiv, `Erro no storage: ${chrome.runtime.lastError.message}`);
         return;
       }
 
@@ -72,7 +73,7 @@ async function inicializar() {
 
           resumoDiv.replaceChildren(
             campoRotulado('Paciente:', resumoObj.paciente_id),
-            campoRotulado('Idade:', resumoObj.paciente_idade ? `${resumoObj.paciente_idade} anos` : 'Data de nasc. ausente'),
+            campoRotulado('Idade:', textoIdade(resumoObj.paciente_idade)),
             campoRotulado('Atendimentos:', resumoObj.total_atendimentos),
             campoRotulado('Último Diagnóstico:', resumoObj.ultimo_diagnostico || 'Nenhum'),
           );
@@ -83,7 +84,7 @@ async function inicializar() {
         } catch (err) {
           console.error("Erro no processar_historico (Rust):", err);
           resumoJson = null;
-          resumoDiv.innerHTML = `<p style='color:red;'>Erro na Engine Wasm: ${err.message || err}</p>`;
+          mostrarErro(resumoDiv, `Erro na Engine Wasm: ${err.message || err}`);
         }
       } else {
         resumoJson = null;
@@ -335,6 +336,14 @@ async function pararEPreencher() {
           campoRotulado('Conduta:', estruturado.conduta || "N/A", true),
           campoRotulado('Observações:', estruturado.observacoes || "N/A", true),
         );
+
+        const truncados = envelope.truncados || [];
+        if (truncados.length) {
+          const avisoCorte = document.createElement('div');
+          avisoCorte.style.cssText = "margin-top:8px; padding:6px 8px; border-radius:6px; background:#fff3cd; color:#664d03; font-size:0.8rem";
+          avisoCorte.textContent = `Texto longo cortado pela IA (termina em "…"): ${truncados.map(nomeDoCampo).join(', ')}. Complete antes de salvar.`;
+          backupDiv.appendChild(avisoCorte);
+        }
 
         const container = document.getElementById('scribeBox');
         const oldBackup = document.getElementById('backupScribe');
@@ -639,6 +648,26 @@ function addMessage(sender, text, id = null) {
 
 // "<strong>rótulo</strong> valor" sem interpretar o valor como HTML (vem do modelo ou da página).
 // Em bloco, o valor vai na linha de baixo, como no resumo do Escriba.
+// Mensagem de erro em vermelho. Por textContent: o texto pode trazer trechos da entrada.
+function mostrarErro(elemento, texto) {
+  const p = document.createElement('p');
+  p.style.color = 'red';
+  p.textContent = texto;
+  elemento.replaceChildren(p);
+}
+
+// paciente_idade: ausente (undefined/null) ou anos completos (0 = menos de 1 ano).
+function textoIdade(idade) {
+  if (idade == null) return 'Data de nasc. ausente';
+  if (idade === 0) return 'Menos de 1 ano';
+  return idade === 1 ? '1 ano' : `${idade} anos`;
+}
+
+const NOMES_CAMPOS = { anamnese: 'Anamnese', observacoes: 'Observações', hipotese: 'Hipótese', conduta: 'Conduta', cids: 'CID' };
+function nomeDoCampo(campo) {
+  return NOMES_CAMPOS[campo] || campo;
+}
+
 function campoRotulado(rotulo, valor, emBloco = false) {
   const linha = document.createElement('div');
   if (emBloco) linha.style.marginBottom = '10px';

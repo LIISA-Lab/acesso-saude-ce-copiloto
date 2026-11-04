@@ -2,7 +2,7 @@ use crate::infrastructure::gemini_client::{
     GeminiError, GenerationConfig, PedidoGemini, ThinkingConfig, gerar_conteudo_rastreado,
 };
 use crate::infrastructure::langfuse_client::{self, Score, ValorScore};
-use crate::services::prompts::neutralizar_marcacao;
+use crate::services::prompts::{cortar_texto, neutralizar_marcacao};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -19,6 +19,10 @@ const PROMPT_ESCRIBA_VERSAO: &str = "escriba-v2";
 const LIMITE_CAMPO: usize = 2000;
 const LIMITE_HIPOTESE: usize = 300;
 const LIMITE_CIDS: usize = 5;
+
+/// Tamanho máximo da transcrição, em caracteres: bem acima de uma consulta longa
+/// (uma hora de fala dá cerca de 60 mil), só para barrar entradas absurdas.
+const LIMITE_TRANSCRICAO: usize = 200_000;
 
 const SYSTEM_INSTRUCTION: &str = "\
 Você é um Escriba Médico. Você recebe a transcrição bruta, gerada por reconhecimento de voz \
@@ -231,6 +235,7 @@ fn pedido_estruturacao(transcricao: &str) -> PedidoGemini {
 }
 
 /// Aplica os limites de tamanho que o modelo pode ter ignorado. Devolve os campos cortados.
+/// O texto cortado termina em "…", e a lista vai no envelope para o painel avisar o médico.
 fn limitar_campos(p: &mut ProntuarioEstruturado) -> Vec<&'static str> {
     let mut cortados = Vec::new();
     for (nome, campo, limite) in [
@@ -239,8 +244,7 @@ fn limitar_campos(p: &mut ProntuarioEstruturado) -> Vec<&'static str> {
         ("hipotese", &mut p.hipotese, LIMITE_HIPOTESE),
         ("conduta", &mut p.conduta, LIMITE_CAMPO),
     ] {
-        if let Some((corte, _)) = campo.char_indices().nth(limite) {
-            campo.truncate(corte);
+        if cortar_texto(campo, limite) {
             cortados.push(nome);
         }
     }
@@ -271,11 +275,13 @@ pub fn parse_prontuario(texto: &str) -> Result<ProntuarioEstruturado, ErroEscrib
 /// Serializa o resultado no envelope consumido pelo painel. Usa sempre o
 /// serializador (nunca `format!`), então qualquer texto é escapado corretamente.
 ///
-/// - `{"ok":true,"data":{"anamnese":"...","observacoes":"...","hipotese":"...","cids":[{"busca":"...","nome":"..."}],"conduta":"..."}}`
+/// - `{"ok":true,"data":{"anamnese":"...","observacoes":"...","hipotese":"...","cids":[{"busca":"...","nome":"..."}],"conduta":"..."},"truncados":["conduta"]}`
 /// - `{"ok":false,"error":{"kind":"...","message":"..."}}`
-pub fn envelope(resultado: &Result<ProntuarioEstruturado, ErroEscriba>) -> String {
+///
+/// `truncados` lista os campos cortados por `limitar_campos` (vazia se nenhum).
+pub fn envelope(resultado: &Result<ProntuarioEstruturado, ErroEscriba>, truncados: &[&str]) -> String {
     match resultado {
-        Ok(dados) => json!({ "ok": true, "data": dados }),
+        Ok(dados) => json!({ "ok": true, "data": dados, "truncados": truncados }),
         Err(erro) => json!({
             "ok": false,
             "error": { "kind": erro.kind, "message": erro.message }
@@ -284,23 +290,38 @@ pub fn envelope(resultado: &Result<ProntuarioEstruturado, ErroEscriba>) -> Strin
     .to_string()
 }
 
-async fn estruturar(transcricao: &str, api_key: &str) -> Result<ProntuarioEstruturado, ErroEscriba> {
+/// Estrutura a transcrição. Devolve o resultado e os campos cortados por tamanho.
+async fn estruturar(
+    transcricao: &str,
+    api_key: &str,
+) -> (Result<ProntuarioEstruturado, ErroEscriba>, Vec<&'static str>) {
     if transcricao.trim().is_empty() {
-        return Err(ErroEscriba {
+        let erro = ErroEscriba {
             kind: "vazio",
             message: "A transcrição está vazia.".to_string(),
-        });
+        };
+        return (Err(erro), Vec::new());
+    }
+    if transcricao.chars().count() > LIMITE_TRANSCRICAO {
+        let erro = ErroEscriba {
+            kind: "longo",
+            message: "A transcrição passou do tamanho máximo; não foi enviada à IA.".to_string(),
+        };
+        return (Err(erro), Vec::new());
     }
 
     let (texto, trace_id) = gerar_conteudo_rastreado(pedido_estruturacao(transcricao), api_key).await;
-    let texto = texto?;
+    let texto = match texto {
+        Ok(texto) => texto,
+        Err(e) => return (Err(e.into()), Vec::new()),
+    };
     let mut resultado = parse_prontuario(&texto);
     let cortados = resultado.as_mut().map(limitar_campos).unwrap_or_default();
 
     if let Some(trace_id) = trace_id {
         langfuse_client::registrar_scores(scores_estruturacao(&trace_id, &resultado, &cortados));
     }
-    resultado
+    (resultado, cortados)
 }
 
 /// Scores automáticos de uma estruturação que voltou do modelo:
@@ -359,7 +380,8 @@ fn scores_estruturacao(
 
 /// Estrutura a transcrição e devolve o envelope JSON (sempre JSON válido).
 pub async fn estruturar_prontuario_json(transcricao: &str, api_key: &str) -> String {
-    envelope(&estruturar(transcricao, api_key).await)
+    let (resultado, truncados) = estruturar(transcricao, api_key).await;
+    envelope(&resultado, &truncados)
 }
 
 #[cfg(test)]
@@ -506,7 +528,7 @@ mod tests {
 
     #[test]
     fn envelope_ok_tem_as_cinco_chaves() {
-        let json = envelope(&Ok(ok_cids("a", "b", "c", &[("x", "X completo"), ("y", "Y completo")], "d")));
+        let json = envelope(&Ok(ok_cids("a", "b", "c", &[("x", "X completo"), ("y", "Y completo")], "d")), &[]);
         let v: Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["ok"], true);
         assert_eq!(v["data"]["anamnese"], "a");
@@ -520,6 +542,22 @@ mod tests {
             ])
         );
         assert_eq!(v["data"]["conduta"], "d");
+        assert_eq!(v["truncados"], json!([]));
+    }
+
+    #[test]
+    fn envelope_lista_campos_truncados() {
+        let v: Value = serde_json::from_str(&envelope(&Ok(ok("a", "", "", "")), &["conduta"])).unwrap();
+        assert_eq!(v["truncados"], json!(["conduta"]));
+    }
+
+    #[test]
+    fn transcricao_longa_demais_nao_chama_a_api() {
+        let longa = "a".repeat(LIMITE_TRANSCRICAO + 1);
+        let v: Value =
+            serde_json::from_str(&block_on(estruturar_prontuario_json(&longa, "chave-qualquer"))).unwrap();
+        assert_eq!(v["ok"], false);
+        assert_eq!(v["error"]["kind"], "longo");
     }
 
     /// Regressão: o JSON de erro era montado com `format!("{:?}")` e ficava
@@ -531,7 +569,7 @@ mod tests {
             kind: "indisponivel",
             message: mensagem.to_string(),
         };
-        let v: Value = serde_json::from_str(&envelope(&Err(erro))).unwrap();
+        let v: Value = serde_json::from_str(&envelope(&Err(erro), &[])).unwrap();
         assert_eq!(v["ok"], false);
         assert_eq!(v["error"]["kind"], "indisponivel");
         assert_eq!(v["error"]["message"], mensagem);
@@ -540,7 +578,7 @@ mod tests {
     #[test]
     fn valores_do_prontuario_com_texto_hostil_sobrevivem_ao_envelope() {
         let dados = ok("linha1\nlinha2 \"citação\"", "<b>x</b>", "\\", "```json");
-        let v: Value = serde_json::from_str(&envelope(&Ok(dados.clone()))).unwrap();
+        let v: Value = serde_json::from_str(&envelope(&Ok(dados.clone()), &[])).unwrap();
         assert_eq!(v["data"]["anamnese"], dados.anamnese);
         assert_eq!(v["data"]["conduta"], dados.conduta);
     }
@@ -627,6 +665,7 @@ mod tests {
             .collect();
         assert_eq!(limitar_campos(&mut p), vec!["anamnese", "cids"]);
         assert_eq!(p.anamnese.chars().count(), LIMITE_CAMPO);
+        assert!(p.anamnese.ends_with('…'));
         assert_eq!(p.hipotese.chars().count(), LIMITE_HIPOTESE);
         assert_eq!(p.cids.len(), LIMITE_CIDS);
 

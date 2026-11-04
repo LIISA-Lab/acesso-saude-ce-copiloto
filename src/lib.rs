@@ -6,9 +6,7 @@ use crate::domain::patient::Historico;
 use crate::infrastructure::gemini_client::chamar_chat;
 use crate::infrastructure::langfuse_client;
 use crate::services::escriba::estruturar_prontuario_json;
-use crate::services::prompts::{
-    AVISO_PERGUNTA_LONGA, limpar_saida, pedido_chat, pergunta_longa, scores_chat,
-};
+use crate::services::prompts::{limpar_saida, pedido_chat, scores_chat, validar_pergunta};
 use crate::services::sanitizer::Sanitizer;
 use crate::services::summarizer::Summarizer;
 use wasm_bindgen::prelude::*;
@@ -60,8 +58,8 @@ pub async fn responder_chat(contexto_resumo_json: &str, pergunta_medico: &str) -
         serde_json::from_str(contexto_resumo_json);
 
     if let Ok(resumo) = resumo_clinico {
-        if pergunta_longa(pergunta_medico) {
-            return AVISO_PERGUNTA_LONGA.to_string();
+        if let Err(aviso) = validar_pergunta(pergunta_medico) {
+            return aviso.to_string();
         }
 
         let (resultado, trace_id) =

@@ -37,7 +37,7 @@ mod tests {
                 id: "123".to_string(),
                 nome: "Maria".to_string(),
                 cpf: "000".to_string(),
-                idade: 60,
+                idade: Some(60),
             },
             atendimentos: vec![
                 Atendimento {
@@ -78,7 +78,7 @@ mod tests {
 
         let resumo = Summarizer::gerar_resumo(&historico);
 
-        assert_eq!(resumo.paciente_idade, 60);
+        assert_eq!(resumo.paciente_idade, Some(60));
         assert_eq!(resumo.total_atendimentos, 3);
         assert_eq!(resumo.alergias, vec!["AAS".to_string()]);
         assert_eq!(resumo.ultimo_diagnostico.unwrap(), "Hipertensão"); // O primeiro do array no teste

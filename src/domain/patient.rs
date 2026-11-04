@@ -5,7 +5,9 @@ pub struct Paciente {
     pub id: String,
     pub nome: String,
     pub cpf: String,
-    pub idade: u8,
+    /// `None` quando a idade não veio da página; `Some(0)` é um bebê com menos de 1 ano.
+    #[serde(default)]
+    pub idade: Option<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -31,7 +33,7 @@ pub struct Historico {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ResumoClinico {
-    pub paciente_idade: u8,
+    pub paciente_idade: Option<u8>,
     pub paciente_id: String,
     pub alergias: Vec<String>,
     pub total_atendimentos: usize,
