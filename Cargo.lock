@@ -9,6 +9,7 @@ dependencies = [
  "console_error_panic_hook",
  "dotenvy",
  "dotenvy_macro",
+ "js-sys",
  "regex",
  "reqwest",
  "serde",

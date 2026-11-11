@@ -12,7 +12,6 @@
 <body>
   <div class="container">
     <header>
-      <img src="images/icone_liisa.png" alt="Logotipo da LIISA" class="logo">
       <div class="header-title">
         <h2>
           Copiloto LIISA
@@ -28,7 +27,7 @@
 
     <div id="tabs" class="tabs">
       <button id="btn-chat" class="tab selected">🗩 Chat</button>
-      <button id="btn-escriba" class="tab">✦ Escriba AI</button>
+      <button id="btn-escriba" class="tab">🗣 Registro da Consulta</button>
     </div>
 
     <div class="scribe-box" id="scribeBox">
@@ -47,8 +46,7 @@
             </strong>
 
             <p id="scribeStatus">
-              Clique para gravar a consulta </br>
-              e auto-preencher o prontuário.
+              Transcreva a consulta e preencha o prontuário.
             </p>
           </div>
 
@@ -81,7 +79,7 @@
     </div>
 
     <div class="input-area" id="inputArea">
-      <input type="text" id="chatInput" placeholder="Pergunte sobre o histórico...">
+      <input type="text" id="chatInput" maxlength="2000" placeholder="Pergunte sobre o histórico...">
       <button id="sendBtn">Enviar</button>
     </div>
   </div>

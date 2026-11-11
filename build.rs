@@ -2,6 +2,15 @@
 // ou do .env e, se ausente, usa o modelo padrão.
 const MODELO_PADRAO: &str = "gemini-3.6-flash";
 
+// Configuração opcional da telemetria (Langfuse); ausentes = telemetria desligada.
+const VARIAVEIS_LANGFUSE: [&str; 5] = [
+    "LANGFUSE_HOST",
+    "LANGFUSE_PUBLIC_KEY",
+    "LANGFUSE_SECRET_KEY",
+    "LANGFUSE_ENVIRONMENT",
+    "LANGFUSE_CAPTURE_CONTENT",
+];
+
 fn main() {
     println!("cargo:rerun-if-changed=.env");
     println!("cargo:rerun-if-env-changed=GEMINI_MODEL");
@@ -15,4 +24,11 @@ fn main() {
         .unwrap_or_else(|| MODELO_PADRAO.to_string());
 
     println!("cargo:rustc-env=GEMINI_MODEL={}", modelo);
+
+    for variavel in VARIAVEIS_LANGFUSE {
+        println!("cargo:rerun-if-env-changed={}", variavel);
+        if let Ok(valor) = std::env::var(variavel) {
+            println!("cargo:rustc-env={}={}", variavel, valor.trim());
+        }
+    }
 }

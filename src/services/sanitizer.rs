@@ -54,7 +54,7 @@ mod tests {
                 id: "12345".to_string(),
                 nome: "João da Silva Sauro".to_string(),
                 cpf: "123.456.789-00".to_string(),
-                idade: 45,
+                idade: Some(45),
             },
             atendimentos: vec![Atendimento {
                 data_hora: "2026-07-14 - 11:20".to_string(),
