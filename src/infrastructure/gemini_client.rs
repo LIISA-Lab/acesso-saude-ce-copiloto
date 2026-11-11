@@ -60,8 +60,11 @@ pub struct PedidoGemini {
     pub generation_config: Option<GenerationConfig>,
     /// Nome do trace na telemetria (ex.: "chat", "escriba").
     pub operacao: &'static str,
+    /// Versão do prompt (ex.: "chat-v2"), enviada como `metadata.prompt_versao`.
+    pub prompt_versao: &'static str,
 }
 
+#[cfg(test)]
 impl PedidoGemini {
     pub fn simples(prompt: String) -> Self {
         Self {
@@ -304,13 +307,9 @@ fn chave_valida(api_key: &str) -> bool {
     !api_key.is_empty() && api_key != "SUA_CHAVE_AQUI"
 }
 
-/// Envia o pedido ao Gemini e devolve o texto gerado ou um erro tipado.
-pub async fn gerar_conteudo(pedido: PedidoGemini, api_key: &str) -> Result<String, GeminiError> {
-    gerar_conteudo_rastreado(pedido, api_key).await.0
-}
-
-/// Como `gerar_conteudo`, mas também devolve o id do trace registrado na telemetria,
-/// para associar scores à chamada (`None` se a chamada nem chegou a ser feita).
+/// Envia o pedido ao Gemini e devolve o texto gerado (ou um erro tipado) e o id do trace
+/// registrado na telemetria, para associar scores à chamada (`None` se a chamada nem
+/// chegou a ser feita).
 pub async fn gerar_conteudo_rastreado(
     pedido: PedidoGemini,
     api_key: &str,
@@ -321,6 +320,7 @@ pub async fn gerar_conteudo_rastreado(
 
     let inicio_ms = langfuse_client::agora_ms();
     let operacao = if pedido.operacao.is_empty() { "gemini" } else { pedido.operacao };
+    let prompt_versao = pedido.prompt_versao;
     let input = mensagens_telemetria(&pedido);
     let parametros = parametros_telemetria(pedido.generation_config.as_ref());
 
@@ -333,10 +333,7 @@ pub async fn gerar_conteudo_rastreado(
         }
         Err(e) => (Nivel::Error, Value::Null, Some(e.to_string())),
     };
-    let mut metadata = vec![("operacao".to_string(), operacao.to_string())];
-    if let Err(e) = &resultado {
-        metadata.push(("erro_kind".to_string(), e.kind().to_string()));
-    }
+    let metadata = metadata_telemetria(operacao, prompt_versao, resultado.as_ref().err());
 
     let trace_id = langfuse_client::registrar_chamada_llm(ChamadaLlm {
         operacao: operacao.to_string(),
@@ -353,6 +350,22 @@ pub async fn gerar_conteudo_rastreado(
     });
 
     (resultado, Some(trace_id))
+}
+
+/// Metadados filtráveis da chamada: operação, versão do prompt (se houver) e tipo do erro.
+fn metadata_telemetria(
+    operacao: &str,
+    prompt_versao: &str,
+    erro: Option<&GeminiError>,
+) -> Vec<(String, String)> {
+    let mut metadata = vec![("operacao".to_string(), operacao.to_string())];
+    if !prompt_versao.is_empty() {
+        metadata.push(("prompt_versao".to_string(), prompt_versao.to_string()));
+    }
+    if let Some(e) = erro {
+        metadata.push(("erro_kind".to_string(), e.kind().to_string()));
+    }
+    metadata
 }
 
 /// Pedido no formato de mensagens, como a UI do Langfuse exibe.
@@ -434,17 +447,19 @@ async fn enviar_pedido(pedido: PedidoGemini, api_key: &str) -> (Result<String, G
 /// Chamada de texto livre usada pelo chat. Mantém o comportamento anterior:
 /// sem chave configurada devolve um aviso como texto e, se a resposta for
 /// cortada por `MAX_TOKENS`, devolve o que chegou em vez de falhar.
-pub async fn chamar_gemini(prompt: String, api_key: &str) -> Result<String, GeminiError> {
+/// Também devolve o id do trace, para associar scores à resposta.
+pub async fn chamar_chat(
+    pedido: PedidoGemini,
+    api_key: &str,
+) -> (Result<String, GeminiError>, Option<String>) {
     if !chave_valida(api_key) {
-        return Ok("AVISO: A chave da API do Gemini não foi configurada. O sistema está rodando sem integração LLM no momento.".to_string());
+        return (Ok("AVISO: A chave da API do Gemini não foi configurada. O sistema está rodando sem integração LLM no momento.".to_string()), None);
     }
 
-    let pedido = PedidoGemini {
-        operacao: "chat",
-        ..PedidoGemini::simples(prompt)
-    };
-    match gerar_conteudo(pedido, api_key).await {
-        Err(GeminiError::Truncado { parcial }) if !parcial.trim().is_empty() => Ok(parcial),
+    match gerar_conteudo_rastreado(pedido, api_key).await {
+        (Err(GeminiError::Truncado { parcial }), trace_id) if !parcial.trim().is_empty() => {
+            (Ok(parcial), trace_id)
+        }
         outro => outro,
     }
 }
@@ -652,6 +667,7 @@ mod tests {
                 max_output_tokens: Some(8192),
             }),
             operacao: "escriba",
+            prompt_versao: "escriba-v2",
         };
         assert_eq!(
             mensagens_telemetria(&pedido),
@@ -665,6 +681,20 @@ mod tests {
         assert_eq!(
             mensagens_telemetria(&PedidoGemini::simples("p".into())),
             json!([{"role": "user", "content": "p"}])
+        );
+    }
+
+    #[test]
+    fn metadata_inclui_versao_do_prompt_e_erro_so_quando_existem() {
+        let par = |k: &str, v: &str| (k.to_string(), v.to_string());
+        assert_eq!(metadata_telemetria("chat", "", None), vec![par("operacao", "chat")]);
+        assert_eq!(
+            metadata_telemetria("chat", "chat-v2", Some(&GeminiError::RespostaVazia)),
+            vec![
+                par("operacao", "chat"),
+                par("prompt_versao", "chat-v2"),
+                par("erro_kind", GeminiError::RespostaVazia.kind()),
+            ]
         );
     }
 
