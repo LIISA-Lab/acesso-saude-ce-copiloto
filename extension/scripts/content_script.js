@@ -15,7 +15,8 @@
   let atendimentosGlobais = [];
   let total_atendimentosGlobal = 0;
   let ultimo_diagnosticoGlobal = "Nenhum";
-  let id_atendimentoGloball = null;
+  let id_atendimentoGlobal = null;
+  let status_consultaGlobal = "Indisponível";
 
   // Recupera dados antigos caso a página tenha sido recarregada (F5) direto na tela de vídeo
   chrome.storage.local.get(['dadosBrutosDaTela'], (result) => {
@@ -27,7 +28,8 @@
           atendimentosGlobais = parseado.atendimentos || [];
           total_atendimentosGlobal = parseado.total_atendimentos || 0;
           ultimo_diagnosticoGlobal = parseado.ultimo_diagnostico || "Nenhum";
-          id_atendimentoGloball = parseado.id_atendimento || null;
+          id_atendimentoGlobal = parseado.id_atendimento || null;
+          status_consultaGlobal = parseado.status_consulta || "Indisponível";
           console.log("[Copiloto] Histórico restaurado da memória local com sucesso (Sobreviveu ao F5).");
         }
       } catch (e) { }
@@ -49,6 +51,7 @@
       const totalAtendimentos = parseInt(sessionStorage.getItem('n_atendimentos')) || 0;
       const ultimoDiagnostico = sessionStorage.getItem('ultimo_diagnostico') || "Nenhum";
       const idAtendimento = sessionStorage.getItem('ws_agendamento_id') || null;
+      const statusConsulta = sessionStorage.getItem('status_consulta') || "Indisponível";
 
       if (totalAtendimentos !== total_atendimentosGlobal) {
         total_atendimentosGlobal = totalAtendimentos;
@@ -56,8 +59,11 @@
       if (ultimoDiagnostico !== ultimo_diagnosticoGlobal) {
         ultimo_diagnosticoGlobal = ultimoDiagnostico;
       }
-      if (idAtendimento !== id_atendimentoGloball) {
-        id_atendimentoGloball = idAtendimento;
+      if (idAtendimento !== id_atendimentoGlobal) {
+        id_atendimentoGlobal = idAtendimento;
+      }
+      if (statusConsulta !== status_consultaGlobal) {
+        status_consultaGlobal = statusConsulta;
       }
     } catch (e) {
       console.error("[Copiloto] Erro ao buscar resumo:", e);
@@ -110,7 +116,8 @@
       alergias: [],
       total_atendimentos: total_atendimentosGlobal,
       ultimo_diagnostico: ultimo_diagnosticoGlobal,
-      id_atendimento: id_atendimentoGloball,
+      id_atendimento: id_atendimentoGlobal,
+      status_da_consulta: status_consultaGlobal,
     });
   }
   // Como o site é um SPA (Single Page Application - React/NextJS), a URL muda mas a página não recarrega.
