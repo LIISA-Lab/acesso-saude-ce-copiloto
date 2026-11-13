@@ -75,7 +75,8 @@ header p {
 
 .tab.selected {
   color: #0a7590;
-  border-bottom-color: #0a86a6;      /* aparece o sublinhado azul-petróleo */
+  border-bottom-color: #0a86a6;
+  /* aparece o sublinhado azul-petróleo */
 }
 
 .scribe-box {
@@ -123,6 +124,60 @@ header p {
   flex: 2;
   justify-content: space-between;
   align-items: center;
+}
+
+.resumo {
+  background: #fff;
+  border: 1px solid #cfe3e8;
+  border-radius: 12px;
+  margin: 14px 14px;
+  overflow: hidden;
+  list-style: none;
+}
+
+.resumo summary {
+  display: flex;
+  padding: 12px 14px;
+  background: #e8f4f7;
+  color: #0b5f7a;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 14px;
+  align-items: center;
+  gap: 8px;
+}
+
+.resumo-icone {
+  font-size: 20px;
+}
+
+.resumo summary::after {
+  content: "";
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+}
+
+.resumo[open] summary::after {
+  transform: translateY(2px) rotate(-135deg);
+}
+
+.resumo-corpo {
+  padding: 12px 14px;
+  font-size: 13px;
+}
+
+.resumo dt {
+  font-size: 11px;
+  font-weight: 700;
+  color: #4a5a63;
+}
+
+.resumo dd {
+  margin: 0 0 8px;
 }
 
 .scribe-info {
@@ -331,7 +386,7 @@ header p {
   background-color: #0093b8;
 }
 
-#minutes, #seconds {
+#minutes,
+#seconds {
   font-family: monospace;
 }
-

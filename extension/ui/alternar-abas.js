@@ -15,6 +15,7 @@ function atualizarTab() {
   escriba.style.display = (emTeleconsulta && abaAtual === 'escriba') ? '' : 'none';
   document.getElementById('chatContainer').style.display = mostrarChat ? '' : 'none';
   document.getElementById('inputArea').style.display = mostrarChat ? '' : 'none';
+  document.getElementById('resumoDetails').style.display = mostrarChat ? '' : 'none';
 }
 
 // Função para mostrar ou ocultar a caixa de escrita
